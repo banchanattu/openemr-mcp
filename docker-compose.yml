@@ -1,0 +1,46 @@
+services:
+  openemr-mcp:
+    image: openemr-mcp:latest
+    build:
+      context: .
+    container_name: openemr-mcp
+    restart: unless-stopped
+    ports:
+      - "${OPENEMR_MCP_PORT:-8305}:8305"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      OPENEMR_MCP_TRANSPORT: streamable-http
+      OPENEMR_MCP_HOST: 0.0.0.0
+      OPENEMR_MCP_PORT: 8305
+      OPENEMR_MCP_PATH: ${OPENEMR_MCP_PATH:-/mcp}
+      OPENEMR_DATA_SOURCE: ${OPENEMR_DATA_SOURCE:-mock}
+      OPENEMR_DB_HOST: ${OPENEMR_DB_HOST:-host.docker.internal}
+      OPENEMR_DB_PORT: ${OPENEMR_DB_PORT:-3306}
+      OPENEMR_DB_USER: ${OPENEMR_DB_USER:-openemr}
+      OPENEMR_DB_PASSWORD: ${OPENEMR_DB_PASSWORD:-openemr}
+      OPENEMR_DB_NAME: ${OPENEMR_DB_NAME:-openemr}
+      OPENEMR_API_BASE_URL: ${OPENEMR_API_BASE_URL:-}
+      OPENEMR_OAUTH_SITE: ${OPENEMR_OAUTH_SITE:-default}
+      OPENEMR_OAUTH_CLIENT_ID: ${OPENEMR_OAUTH_CLIENT_ID:-}
+      OPENEMR_OAUTH_CLIENT_SECRET: ${OPENEMR_OAUTH_CLIENT_SECRET:-}
+      OPENEMR_OAUTH_USERNAME: ${OPENEMR_OAUTH_USERNAME:-}
+      OPENEMR_OAUTH_PASSWORD: ${OPENEMR_OAUTH_PASSWORD:-}
+      OPENEMR_API_VERIFY_SSL: ${OPENEMR_API_VERIFY_SSL:-true}
+      OPENEMR_ENABLE_CLIENT_VIA_SQL: ${OPENEMR_ENABLE_CLIENT_VIA_SQL:-false}
+      OPENEMR_DOCKER_SERVICE: ${OPENEMR_DOCKER_SERVICE:-}
+      OPENEMR_DOCKER_CWD: ${OPENEMR_DOCKER_CWD:-}
+      DRUG_INTERACTION_SOURCE: ${DRUG_INTERACTION_SOURCE:-mock}
+      SYMPTOM_SOURCE: ${SYMPTOM_SOURCE:-mock}
+      INFERMEDICA_APP_ID: ${INFERMEDICA_APP_ID:-}
+      INFERMEDICA_APP_KEY: ${INFERMEDICA_APP_KEY:-}
+      OPENFDA_SOURCE: ${OPENFDA_SOURCE:-mock}
+      OPENFDA_API_KEY: ${OPENFDA_API_KEY:-}
+    networks:
+      - default
+      - openemr
+
+networks:
+  openemr:
+    name: ${OPENEMR_DOCKER_NETWORK:-openemr_default}
+    external: true

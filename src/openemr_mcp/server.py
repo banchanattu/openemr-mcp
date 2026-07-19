@@ -7,20 +7,25 @@ flag CRUD, lab trends, vital trends, questionnaire trends, health trajectory,
 and visit prep.
 
 Run via:
-    openemr-mcp                    # stdio transport (default)
+    openemr-mcp                                             # stdio transport (default)
     OPENEMR_DATA_SOURCE=mock openemr-mcp
+    openemr-mcp --transport streamable-http --port 8305     # network server
 """
 
+import argparse
 import asyncio
 import json
 import logging
+import os
 import time
 from typing import Any
 
 import mcp.types as types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
+from openemr_mcp import config as _config  # Load .env defaults before parsing transport options.
 
+_ = _config
 _log = logging.getLogger("openemr_mcp")
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
 
@@ -314,17 +319,25 @@ def _json(obj: Any) -> str:
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
+    try:
+        result = _invoke_tool(name, arguments)
+        return [types.TextContent(type="text", text=_json(result))]
+    except Exception as exc:
+        error_payload = {"error": str(exc), "tool": name}
+        return [types.TextContent(type="text", text=json.dumps(error_payload))]
+
+
+def _invoke_tool(name: str, args: dict) -> Any:
     t0 = time.perf_counter()
     try:
-        result = _dispatch(name, arguments)
+        result = _dispatch(name, args)
         elapsed_ms = (time.perf_counter() - t0) * 1000
         _log.info("tool=%s status=ok latency_ms=%.1f", name, elapsed_ms)
-        return [types.TextContent(type="text", text=_json(result))]
+        return result
     except Exception as exc:
         elapsed_ms = (time.perf_counter() - t0) * 1000
         _log.error("tool=%s status=error latency_ms=%.1f error=%s", name, elapsed_ms, exc, exc_info=True)
-        error_payload = {"error": str(exc), "tool": name}
-        return [types.TextContent(type="text", text=json.dumps(error_payload))]
+        raise
 
 
 def _dispatch(name: str, args: dict) -> Any:
@@ -464,9 +477,61 @@ async def _main():
         )
 
 
-def run():
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run the OpenEMR MCP server.")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "streamable-http", "http"],
+        default=os.getenv("OPENEMR_MCP_TRANSPORT", "stdio"),
+        help="Transport to expose. Use streamable-http to run a network server.",
+    )
+    parser.add_argument(
+        "--host",
+        default=os.getenv("OPENEMR_MCP_HOST", "127.0.0.1"),
+        help="Bind host for streamable-http transport.",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.getenv("OPENEMR_MCP_PORT", "8305")),
+        help="Bind port for streamable-http transport.",
+    )
+    parser.add_argument(
+        "--path",
+        default=os.getenv("OPENEMR_MCP_PATH", "/mcp"),
+        help="HTTP mount path for streamable-http transport.",
+    )
+    return parser.parse_args(argv)
+
+
+def _normalize_transport(transport: str) -> str:
+    if transport == "http":
+        return "streamable-http"
+    return transport
+
+
+def _normalize_path(path: str) -> str:
+    cleaned = path.strip() or "/mcp"
+    if not cleaned.startswith("/"):
+        cleaned = f"/{cleaned}"
+    return cleaned
+
+
+def run(argv: list[str] | None = None):
     """Entry point: openemr-mcp"""
-    asyncio.run(_main())
+    args = _parse_args(argv)
+    transport = _normalize_transport(args.transport)
+    if transport == "stdio":
+        asyncio.run(_main())
+        return
+
+    from openemr_mcp.http_server import run_streamable_http
+
+    run_streamable_http(
+        host=args.host,
+        port=args.port,
+        path=_normalize_path(args.path),
+    )
 
 
 if __name__ == "__main__":

@@ -52,6 +52,35 @@ OPENEMR_DATA_SOURCE=api \
   openemr-mcp
 ```
 
+### Run As A Network Server
+
+The package can also run as a standalone MCP server over Streamable HTTP.
+
+```bash
+# Default endpoint: http://127.0.0.1:8305/mcp
+OPENEMR_DATA_SOURCE=mock \
+  openemr-mcp --transport streamable-http --host 127.0.0.1 --port 8305
+```
+
+Equivalent environment-variable based startup:
+
+```bash
+OPENEMR_MCP_TRANSPORT=streamable-http
+OPENEMR_MCP_HOST=127.0.0.1
+OPENEMR_MCP_PORT=8305
+OPENEMR_MCP_PATH=/mcp
+OPENEMR_DATA_SOURCE=mock
+openemr-mcp
+```
+
+Clients should connect to `http://127.0.0.1:8305/mcp`.
+
+Quick smoke test from another terminal:
+
+```bash
+uv run python examples/smoke_test_http.py --url http://127.0.0.1:8305/mcp
+```
+
 ## Claude Desktop Configuration
 
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
@@ -133,6 +162,12 @@ Key variables:
 ```bash
 # Data source
 OPENEMR_DATA_SOURCE=mock        # mock | db | api
+
+# MCP transport
+OPENEMR_MCP_TRANSPORT=stdio     # stdio | streamable-http
+OPENEMR_MCP_HOST=127.0.0.1
+OPENEMR_MCP_PORT=8305
+OPENEMR_MCP_PATH=/mcp
 
 # MySQL (when OPENEMR_DATA_SOURCE=db)
 OPENEMR_DB_HOST=localhost
