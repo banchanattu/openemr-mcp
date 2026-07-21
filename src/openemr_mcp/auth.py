@@ -11,6 +11,7 @@ import time
 import httpx
 
 from openemr_mcp.config import settings
+from openemr_mcp.request_auth import get_request_auth_context
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,32 @@ class OAuth2TokenManager:
     def _has_user_credentials(self) -> bool:
         return bool(self._settings.openemr_oauth_username and self._settings.openemr_oauth_password)
 
+    def _request_auth_required(self) -> bool:
+        return self._settings.openemr_auth_mode == "request_token" or self._settings.openemr_require_request_auth
+
+    def _get_request_access_token(self) -> str | None:
+        context = get_request_auth_context()
+        return context.access_token if context else None
+
+    def _refresh_request_token(self, refresh_token: str) -> str:
+        if not self._client_id or not self._client_secret:
+            raise OpenEMROAuthError("OpenEMR client credentials required for request token refresh")
+        data = {
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "client_id": self._client_id,
+            "client_secret": self._client_secret,
+        }
+        with httpx.Client(verify=self._settings.openemr_api_verify_ssl) as client:
+            resp = client.post(self._token_url(), data=data)
+        if resp.status_code >= 400:
+            raise OpenEMROAuthError(f"OpenEMR request token refresh failed: HTTP {resp.status_code}")
+        out = resp.json()
+        access_token = out.get("access_token")
+        if not access_token:
+            raise OpenEMROAuthError("OpenEMR request token refresh response missing access_token")
+        return access_token
+
     def _do_registration(self) -> None:
         self._client_id, self._client_secret = register_client(OAUTH_SCOPES, self._settings)
         if self._settings.openemr_enable_client_via_sql:
@@ -171,6 +198,13 @@ class OAuth2TokenManager:
 
     def get_valid_access_token(self, force_refresh: bool = False) -> str:
         with self._lock:
+            request_context = get_request_auth_context()
+            if request_context and request_context.access_token and not force_refresh:
+                return request_context.access_token
+            if request_context and request_context.refresh_token and self._settings.openemr_enable_request_token_refresh:
+                return self._refresh_request_token(request_context.refresh_token)
+            if self._request_auth_required():
+                raise OpenEMROAuthError("Request access token required")
             if not self._client_id or not self._client_secret:
                 if self._has_user_credentials():
                     self._do_registration()

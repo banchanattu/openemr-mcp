@@ -30,6 +30,15 @@ class Settings(BaseModel):
 
     # FHIR R4 API (used when OPENEMR_DATA_SOURCE=api)
     openemr_api_base_url: str | None = os.getenv("OPENEMR_API_BASE_URL")
+    openemr_auth_mode: str = os.getenv("OPENEMR_AUTH_MODE", "auto")
+    openemr_require_request_auth: bool = os.getenv("OPENEMR_REQUIRE_REQUEST_AUTH", "false").lower() == "true"
+    openemr_refresh_token_header: str = os.getenv("OPENEMR_REFRESH_TOKEN_HEADER", "X-Refresh-Token")
+    openemr_enable_request_token_refresh: bool = (
+        os.getenv("OPENEMR_ENABLE_REQUEST_TOKEN_REFRESH", "false").lower() == "true"
+    )
+    openemr_validate_request_token_locally: bool = (
+        os.getenv("OPENEMR_VALIDATE_REQUEST_TOKEN_LOCALLY", "true").lower() == "true"
+    )
     openemr_oauth_site: str = os.getenv("OPENEMR_OAUTH_SITE", "default")
     openemr_oauth_client_id: str | None = os.getenv("OPENEMR_OAUTH_CLIENT_ID")
     openemr_oauth_client_secret: str | None = os.getenv("OPENEMR_OAUTH_CLIENT_SECRET")

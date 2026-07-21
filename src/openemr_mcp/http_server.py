@@ -3,11 +3,71 @@
 import logging
 from typing import Any
 
+import uvicorn
 from mcp.server.fastmcp import FastMCP
+from starlette.datastructures import Headers
+from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
+from openemr_mcp.config import settings
+from openemr_mcp.request_auth import (
+    RequestAuthContext,
+    claims_are_active,
+    decode_jwt_claims,
+    parse_bearer_token,
+    reset_request_auth_context,
+    set_request_auth_context,
+)
 from openemr_mcp.server import _TOOLS, _invoke_tool
 
 _log = logging.getLogger("openemr_mcp")
+
+
+class RequestAuthMiddleware:
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers = Headers(scope=scope)
+        auth_header = headers.get("authorization")
+        refresh_token = headers.get(settings.openemr_refresh_token_header)
+        token = None
+        try:
+            token = parse_bearer_token(auth_header)
+        except ValueError as exc:
+            response = JSONResponse({"error": str(exc)}, status_code=401)
+            await response(scope, receive, send)
+            return
+
+        if not token and _request_auth_required():
+            response = JSONResponse({"error": "Missing bearer token"}, status_code=401)
+            await response(scope, receive, send)
+            return
+
+        claims = decode_jwt_claims(token) if token and settings.openemr_validate_request_token_locally else None
+        if token and settings.openemr_validate_request_token_locally and claims is None:
+            response = JSONResponse({"error": "Bearer token is not a valid JWT"}, status_code=401)
+            await response(scope, receive, send)
+            return
+        if claims is not None and not claims_are_active(claims):
+            response = JSONResponse({"error": "Bearer token is expired or not yet active"}, status_code=401)
+            await response(scope, receive, send)
+            return
+
+        context = RequestAuthContext(access_token=token, refresh_token=refresh_token, claims=claims) if token else None
+        context_token = set_request_auth_context(context)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            reset_request_auth_context(context_token)
+
+
+def _request_auth_required() -> bool:
+    return settings.openemr_auth_mode == "request_token" or settings.openemr_require_request_auth
 
 
 def _tool_description(name: str) -> str:
@@ -242,7 +302,19 @@ def build_http_server(host: str, port: int, path: str) -> FastMCP:
     return mcp
 
 
-def run_streamable_http(host: str, port: int, path: str) -> None:
+def build_streamable_http_app(host: str, port: int, path: str):
     mcp = build_http_server(host=host, port=port, path=path)
+    app = mcp.streamable_http_app()
+    app.add_middleware(RequestAuthMiddleware)
+    return app, mcp
+
+
+def run_streamable_http(host: str, port: int, path: str) -> None:
+    app, mcp = build_streamable_http_app(host=host, port=port, path=path)
     _log.info("starting streamable-http server at http://%s:%s%s", host, port, path)
-    mcp.run(transport="streamable-http")
+    uvicorn.run(
+        app,
+        host=host,
+        port=port,
+        log_level=mcp.settings.log_level.lower(),
+    )
