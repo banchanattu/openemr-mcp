@@ -12,7 +12,11 @@ if [ -f "$ENV_FILE" ]; then
     echo "Loading Compose environment from ${ENV_FILE}"
     set -a
     # shellcheck disable=SC1090
-    source "$ENV_FILE"
+    case "$ENV_FILE" in
+        /*|./*|../*) ENV_FILE_PATH="$ENV_FILE" ;;
+        *) ENV_FILE_PATH="./$ENV_FILE" ;;
+    esac
+    . "$ENV_FILE_PATH"
     set +a
 else
     echo "No .env.docker or .env found. Using shell environment and Compose defaults."

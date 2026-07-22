@@ -1,6 +1,7 @@
 import base64
 import json
 import time
+import types
 
 import anyio
 import httpx
@@ -12,6 +13,7 @@ from starlette.routing import Route
 from openemr_mcp.auth import OAuth2TokenManager, OpenEMROAuthError
 from openemr_mcp.config import settings
 from openemr_mcp.http_server import RequestAuthMiddleware
+from openemr_mcp.repositories._errors import ToolError
 from openemr_mcp.request_auth import (
     RequestAuthContext,
     get_request_auth_context,
@@ -132,3 +134,50 @@ def test_request_token_mode_fails_closed_without_context(auth_settings, monkeypa
 
     with pytest.raises(OpenEMROAuthError, match="Request access token required"):
         OAuth2TokenManager(settings).get_valid_access_token()
+
+
+def test_fhir_401_reports_fallback_oauth_when_request_token_missing(auth_settings, monkeypatch):
+    from openemr_mcp.data_source import get_http_client
+
+    monkeypatch.setattr(settings, "openemr_auth_mode", "auto")
+    monkeypatch.setattr(settings, "openemr_require_request_auth", False)
+
+    def fake_get_valid_access_token(self, force_refresh=False):
+        return "server-owned-token"
+
+    def fake_http_get(url, params=None, headers=None, timeout=None):
+        request = httpx.Request("GET", url, params=params, headers=headers)
+        response = httpx.Response(401, request=request)
+        raise httpx.HTTPStatusError("401", request=request, response=response)
+
+    monkeypatch.setattr(OAuth2TokenManager, "get_valid_access_token", fake_get_valid_access_token)
+    monkeypatch.setattr(httpx, "get", fake_http_get)
+
+    with pytest.raises(ToolError, match="No inbound bearer token was available"):
+        get_http_client().get_fhir("Practitioner")
+
+
+def test_fhir_401_reports_forwarded_request_token(auth_settings, monkeypatch):
+    from openemr_mcp.data_source import get_http_client
+
+    monkeypatch.setattr(settings, "openemr_auth_mode", "auto")
+    monkeypatch.setattr(settings, "openemr_require_request_auth", False)
+
+    captured = types.SimpleNamespace(headers=None)
+
+    def fake_http_get(url, params=None, headers=None, timeout=None):
+        captured.headers = headers
+        request = httpx.Request("GET", url, params=params, headers=headers)
+        response = httpx.Response(401, request=request)
+        raise httpx.HTTPStatusError("401", request=request, response=response)
+
+    monkeypatch.setattr(httpx, "get", fake_http_get)
+
+    context_token = set_request_auth_context(RequestAuthContext(access_token="trusted-openemr-token"))
+    try:
+        with pytest.raises(ToolError, match="Request bearer token was forwarded to OpenEMR and rejected"):
+            get_http_client().get_fhir("Practitioner")
+    finally:
+        reset_request_auth_context(context_token)
+
+    assert captured.headers["Authorization"] == "Bearer trusted-openemr-token"

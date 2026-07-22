@@ -1,7 +1,4 @@
-"""Simplified data source resolver for the standalone MCP server.
-
-Unlike the FastAPI app, there's no per-request context var — just the global env setting.
-"""
+"""Simplified data source resolver for the standalone MCP server."""
 
 import os
 
@@ -15,6 +12,32 @@ def get_http_client():
     """Return an OpenEMR FHIR HTTP client configured from env vars."""
     from openemr_mcp.auth import OAuth2TokenManager
     from openemr_mcp.config import settings
+    from openemr_mcp.request_auth import get_request_auth_context
+
+    def _safe_http_error_detail(response) -> str:
+        details: list[str] = []
+        auth_header = response.headers.get("www-authenticate")
+        if auth_header:
+            details.append(f" WWW-Authenticate: {auth_header[:200]}")
+        body = (response.text or "").strip()
+        if body:
+            details.append(f" Response body: {body[:200]}")
+        return "".join(details)
+
+    def _auth_mode_hint(status_code: int) -> str:
+        if status_code != 401:
+            return ""
+        request_context = get_request_auth_context()
+        if request_context and request_context.access_token:
+            return " Request bearer token was forwarded to OpenEMR and rejected."
+        if settings.openemr_auth_mode == "request_token" or settings.openemr_require_request_auth:
+            return " Request bearer token was required but not available to the outbound OpenEMR client."
+        return (
+            " No inbound bearer token was available, so request-token forwarding was not used."
+            " The server fell back to configured OpenEMR OAuth credentials."
+            " If this deployment should forward caller tokens, set OPENEMR_AUTH_MODE=request_token"
+            " or OPENEMR_REQUIRE_REQUEST_AUTH=true and send Authorization: Bearer on the MCP request."
+        )
 
     class _OpenEMRClient:
         """Minimal FHIR + REST client for OpenEMR, matching the interface used by repositories."""
@@ -42,7 +65,9 @@ def get_http_client():
                     return {}
                 from openemr_mcp.repositories._errors import ToolError
 
-                raise ToolError(f"FHIR API error: {exc.response.status_code}") from exc
+                hint = _auth_mode_hint(exc.response.status_code)
+                detail = _safe_http_error_detail(exc.response)
+                raise ToolError(f"FHIR API error: {exc.response.status_code}{hint}{detail}") from exc
             except Exception as exc:
                 from openemr_mcp.repositories._errors import ToolError
 
@@ -59,6 +84,12 @@ def get_http_client():
                 r = httpx.get(url, params=params, headers=headers, timeout=15.0)
                 r.raise_for_status()
                 return r.json()
+            except httpx.HTTPStatusError as exc:
+                from openemr_mcp.repositories._errors import ToolError
+
+                hint = _auth_mode_hint(exc.response.status_code)
+                detail = _safe_http_error_detail(exc.response)
+                raise ToolError(f"REST API error: HTTP {exc.response.status_code}{hint}{detail}") from exc
             except Exception as exc:
                 from openemr_mcp.repositories._errors import ToolError
 

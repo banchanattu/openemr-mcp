@@ -81,6 +81,67 @@ Quick smoke test from another terminal:
 uv run python examples/smoke_test_http.py --url http://127.0.0.1:8305/mcp
 ```
 
+## Local vs Docker Config
+
+This repo uses different env files for local and Docker startup:
+
+| Startup path | Env file | OpenEMR host to use |
+|---|---|---|
+| `./startlocal.sh` or direct `openemr-mcp` from repo root | `.env.local` or `.env` | `http://localhost:8300/apis/default` |
+| `./startdocker.sh` | `.env.docker` or `.env` | `http://host.docker.internal:8300/apis/default` |
+
+Why the host changes:
+
+- A local process can reach your OpenEMR instance at `localhost`.
+- A Docker container cannot use its own `localhost` to reach your host machine, so it must use `host.docker.internal`.
+
+This repository now includes a sample `.env.docker` configured for a host OpenEMR instance on port `8300`:
+
+```env
+OPENEMR_DATA_SOURCE=api
+OPENEMR_API_BASE_URL=http://host.docker.internal:8300/apis/default
+OPENEMR_API_VERIFY_SSL=false
+```
+
+If your OpenEMR requires OAuth credentials, either:
+
+- set them in `.env.docker`, or
+- export them in your shell before running `./startdocker.sh`
+
+To switch back to mock mode:
+
+```env
+OPENEMR_DATA_SOURCE=mock
+```
+
+For Docker, you can put that in `.env.docker`. For local runs, put it in `.env.local`.
+
+### Common Modes
+
+Local process against your OpenEMR instance:
+
+```env
+# .env.local
+OPENEMR_DATA_SOURCE=api
+OPENEMR_API_BASE_URL=http://localhost:8300/apis/default
+OPENEMR_API_VERIFY_SSL=false
+```
+
+Docker container against your OpenEMR instance:
+
+```env
+# .env.docker
+OPENEMR_DATA_SOURCE=api
+OPENEMR_API_BASE_URL=http://host.docker.internal:8300/apis/default
+OPENEMR_API_VERIFY_SSL=false
+```
+
+Mock mode for either startup path:
+
+```env
+OPENEMR_DATA_SOURCE=mock
+```
+
 ## Claude Desktop Configuration
 
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):

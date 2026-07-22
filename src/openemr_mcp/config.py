@@ -6,12 +6,14 @@ from pathlib import Path
 from dotenv import dotenv_values
 from pydantic import BaseModel, ConfigDict
 
-# Load .env defaults from cwd only.
-# Precedence: process env > cwd .env
-_cwd_env = dotenv_values(Path.cwd() / ".env") if (Path.cwd() / ".env").exists() else {}
-for _key, _value in _cwd_env.items():
-    if _value is not None and _key not in os.environ:
-        os.environ[_key] = _value
+# Load local env defaults from cwd.
+# Precedence: process env > cwd .env.local > cwd .env
+for _env_name in (".env", ".env.local"):
+    _env_path = Path.cwd() / _env_name
+    _cwd_env = dotenv_values(_env_path) if _env_path.exists() else {}
+    for _key, _value in _cwd_env.items():
+        if _value is not None and _key not in os.environ:
+            os.environ[_key] = _value
 
 
 class Settings(BaseModel):
