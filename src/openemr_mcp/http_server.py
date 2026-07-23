@@ -48,7 +48,7 @@ class RequestAuthMiddleware:
             await response(scope, receive, send)
             return
 
-        claims = decode_jwt_claims(token) if token and settings.openemr_validate_request_token_locally else None
+        claims = decode_jwt_claims(token) if token else None
         if token and settings.openemr_validate_request_token_locally and claims is None:
             response = JSONResponse({"error": "Bearer token is not a valid JWT"}, status_code=401)
             await response(scope, receive, send)

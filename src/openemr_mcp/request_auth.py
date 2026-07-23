@@ -17,6 +17,11 @@ class RequestAuthContext:
     claims: dict[str, Any] | None = None
 
     @property
+    def openemr_access_token(self) -> str:
+        embedded_token = extract_original_jti_token(self.claims)
+        return embedded_token or self.access_token
+
+    @property
     def user_id(self) -> str | None:
         claims = self.claims or {}
         for key in ("preferred_username", "username", "sub", "user_id"):
@@ -63,6 +68,15 @@ def decode_jwt_claims(token: str) -> dict[str, Any] | None:
     except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
         return None
     return claims if isinstance(claims, dict) else None
+
+
+def extract_original_jti_token(claims: dict[str, Any] | None) -> str | None:
+    if not isinstance(claims, dict):
+        return None
+    token = claims.get("original_jti")
+    if isinstance(token, str) and token.strip():
+        return token.strip()
+    return None
 
 
 def claims_are_active(claims: dict[str, Any]) -> bool:

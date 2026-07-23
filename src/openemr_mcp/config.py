@@ -41,6 +41,9 @@ class Settings(BaseModel):
     openemr_validate_request_token_locally: bool = (
         os.getenv("OPENEMR_VALIDATE_REQUEST_TOKEN_LOCALLY", "true").lower() == "true"
     )
+    openemr_log_outbound_bearer_token: bool = (
+        os.getenv("OPENEMR_LOG_OUTBOUND_BEARER_TOKEN", "false").lower() == "true"
+    )
     openemr_oauth_site: str = os.getenv("OPENEMR_OAUTH_SITE", "default")
     openemr_oauth_client_id: str | None = os.getenv("OPENEMR_OAUTH_CLIENT_ID")
     openemr_oauth_client_secret: str | None = os.getenv("OPENEMR_OAUTH_CLIENT_SECRET")

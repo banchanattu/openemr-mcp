@@ -1,6 +1,9 @@
 """Simplified data source resolver for the standalone MCP server."""
 
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 
 
 def get_effective_data_source() -> str:
@@ -47,6 +50,10 @@ def get_http_client():
 
         def _get_headers(self) -> dict:
             token = self._token_manager.get_valid_access_token()
+            if settings.openemr_log_outbound_bearer_token:
+                logger.warning("#### OPENEMR OUTBOUND BEARER TOKEN START ####")
+                logger.warning("%s", token)
+                logger.warning("#### OPENEMR OUTBOUND BEARER TOKEN END ####")
             return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
         def get_fhir(self, resource_path: str, params: dict | None = None) -> dict:

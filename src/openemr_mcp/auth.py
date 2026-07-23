@@ -121,7 +121,7 @@ class OAuth2TokenManager:
 
     def _get_request_access_token(self) -> str | None:
         context = get_request_auth_context()
-        return context.access_token if context else None
+        return context.openemr_access_token if context else None
 
     def _refresh_request_token(self, refresh_token: str) -> str:
         if not self._client_id or not self._client_secret:
@@ -199,8 +199,8 @@ class OAuth2TokenManager:
     def get_valid_access_token(self, force_refresh: bool = False) -> str:
         with self._lock:
             request_context = get_request_auth_context()
-            if request_context and request_context.access_token and not force_refresh:
-                return request_context.access_token
+            if request_context and request_context.openemr_access_token and not force_refresh:
+                return request_context.openemr_access_token
             if request_context and request_context.refresh_token and self._settings.openemr_enable_request_token_refresh:
                 return self._refresh_request_token(request_context.refresh_token)
             if self._request_auth_required():
