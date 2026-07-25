@@ -38,6 +38,16 @@ def test_patient_search_no_results():
     assert len(results) == 0
 
 
+def test_patient_search_empty_query_raises():
+    import pytest
+
+    from openemr_mcp.repositories._errors import ToolError
+    from openemr_mcp.tools.patient import run_patient_search
+
+    with pytest.raises(ToolError, match="No patient found\\."):
+        run_patient_search("")
+
+
 # ---------------------------------------------------------------------------
 # Appointments
 # ---------------------------------------------------------------------------

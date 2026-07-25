@@ -1,6 +1,7 @@
 """Patient search tool."""
 
 from openemr_mcp.data_source import get_effective_data_source, get_http_client
+from openemr_mcp.repositories._errors import ToolError
 from openemr_mcp.schemas import PatientMatch
 
 MOCK_PATIENTS: list[PatientMatch] = [
@@ -34,7 +35,7 @@ MOCK_PATIENTS: list[PatientMatch] = [
 def run_patient_search(query: str) -> list[PatientMatch]:
     q = (query or "").strip()
     if not q:
-        return []
+        raise ToolError("No patient found.")
     ds = get_effective_data_source()
     if ds == "db":
         from openemr_mcp.repositories.patient import get_openemr_connection, search_patients
