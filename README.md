@@ -189,7 +189,6 @@ For mock mode (demo / evaluation):
 | Value | Description |
 |---|---|
 | `mock` (default) | Built-in curated demo data — 24 patients, no network required |
-| `db` | Direct MySQL connection to OpenEMR database |
 | `api` | OpenEMR FHIR R4 REST API (recommended for production) |
 
 ### Drug Interactions (`DRUG_INTERACTION_SOURCE`)
@@ -222,20 +221,13 @@ Key variables:
 
 ```bash
 # Data source
-OPENEMR_DATA_SOURCE=mock        # mock | db | api
+OPENEMR_DATA_SOURCE=mock        # mock | api
 
 # MCP transport
 OPENEMR_MCP_TRANSPORT=stdio     # stdio | streamable-http
 OPENEMR_MCP_HOST=127.0.0.1
 OPENEMR_MCP_PORT=8305
 OPENEMR_MCP_PATH=/mcp
-
-# MySQL (when OPENEMR_DATA_SOURCE=db)
-OPENEMR_DB_HOST=localhost
-OPENEMR_DB_PORT=3306
-OPENEMR_DB_USER=openemr
-OPENEMR_DB_PASSWORD=openemr
-OPENEMR_DB_NAME=openemr
 
 # FHIR API (when OPENEMR_DATA_SOURCE=api)
 OPENEMR_API_BASE_URL=https://your-openemr/apis/default
@@ -406,7 +398,7 @@ src/openemr_mcp/
 ├── auth.py                # OpenEMR OAuth2 token manager
 ├── data_source.py         # Data source resolver
 ├── tools/                 # 13 tool modules (17 MCP tools)
-├── repositories/          # Data access (MySQL, FHIR R4, SQLite)
+├── repositories/          # Data access (FHIR R4, SQLite)
 └── services/              # Business logic (OpenFDA, trajectory alerts, visit prep)
 ```
 

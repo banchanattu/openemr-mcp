@@ -20,15 +20,8 @@ class Settings(BaseModel):
     env: str = os.getenv("ENV", "dev")
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
 
-    # OpenEMR data source: mock (default) | db (MySQL) | api (FHIR R4)
+    # OpenEMR data source: mock (default) | api (FHIR R4)
     openemr_data_source: str = os.getenv("OPENEMR_DATA_SOURCE", "mock")
-
-    # MySQL connection (used when OPENEMR_DATA_SOURCE=db)
-    openemr_db_host: str = os.getenv("OPENEMR_DB_HOST", "localhost")
-    openemr_db_port: int = int(os.getenv("OPENEMR_DB_PORT", "3306"))
-    openemr_db_user: str = os.getenv("OPENEMR_DB_USER", "openemr")
-    openemr_db_password: str = os.getenv("OPENEMR_DB_PASSWORD", "")
-    openemr_db_name: str = os.getenv("OPENEMR_DB_NAME", "openemr")
 
     # FHIR R4 API (used when OPENEMR_DATA_SOURCE=api)
     openemr_api_base_url: str | None = os.getenv("OPENEMR_API_BASE_URL")
@@ -50,10 +43,6 @@ class Settings(BaseModel):
     openemr_oauth_username: str | None = os.getenv("OPENEMR_OAUTH_USERNAME")
     openemr_oauth_password: str | None = os.getenv("OPENEMR_OAUTH_PASSWORD")
     openemr_api_verify_ssl: bool = os.getenv("OPENEMR_API_VERIFY_SSL", "true").lower() == "true"
-    openemr_enable_client_via_sql: bool = os.getenv("OPENEMR_ENABLE_CLIENT_VIA_SQL", "false").lower() == "true"
-    openemr_docker_service: str | None = os.getenv("OPENEMR_DOCKER_SERVICE")
-    openemr_docker_cwd: str | None = os.getenv("OPENEMR_DOCKER_CWD")
-
     # Drug interaction source: mock (default) | openfda (OpenFDA FAERS — free, no key) | rxnorm (deprecated/unavailable)
     drug_interaction_source: str = os.getenv("DRUG_INTERACTION_SOURCE", "mock")
 

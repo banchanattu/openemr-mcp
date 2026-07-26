@@ -1,7 +1,6 @@
 """Patient search tool."""
 
 from openemr_mcp.data_source import get_effective_data_source, get_http_client
-from openemr_mcp.repositories._errors import ToolError
 from openemr_mcp.schemas import PatientMatch
 
 MOCK_PATIENTS: list[PatientMatch] = [
@@ -34,17 +33,13 @@ MOCK_PATIENTS: list[PatientMatch] = [
 
 def run_patient_search(query: str) -> list[PatientMatch]:
     q = (query or "").strip()
-    if not q:
-        raise ToolError("No patient found.")
     ds = get_effective_data_source()
-    if ds == "db":
-        from openemr_mcp.repositories.patient import get_openemr_connection, search_patients
-
-        return search_patients(q, get_openemr_connection)
     if ds == "api":
         from openemr_mcp.repositories.fhir_api import search_patients_api
 
         return search_patients_api(q, get_http_client())
+    if not q:
+        return list(MOCK_PATIENTS)
     q_lower = q.lower()
     return [p for p in MOCK_PATIENTS if q_lower in p.full_name.lower()]
 
@@ -53,10 +48,6 @@ def run_get_patient_by_id(pid: int) -> PatientMatch | None:
     if pid <= 0:
         return None
     ds = get_effective_data_source()
-    if ds == "db":
-        from openemr_mcp.repositories.patient import get_openemr_connection, get_patient_by_id
-
-        return get_patient_by_id(pid, get_openemr_connection)
     if ds == "api":
         from openemr_mcp.repositories.fhir_api import get_patient_by_pid_api
 

@@ -15,6 +15,9 @@ from openemr_mcp.schemas import (
     TrajectoryPoint,
 )
 
+FHIR_PATIENT_PAGE_SIZE = "200"
+FHIR_PATIENT_MAX_PAGES = 25
+
 
 def _patient_id_from_fhir_id(resource_id: str) -> str:
     if not resource_id:
@@ -46,25 +49,58 @@ def _full_name_from_fhir_name(name_list: Any) -> str | None:
     return " ".join(parts).strip() or None
 
 
+def _bundle_entries(bundle: Any) -> list[dict[str, Any]]:
+    entries = bundle.get("entry") if isinstance(bundle, dict) else None
+    if not isinstance(entries, list):
+        return []
+    return [entry for entry in entries if isinstance(entry, dict)]
+
+
+def _next_link(bundle: Any) -> str | None:
+    links = bundle.get("link") if isinstance(bundle, dict) else None
+    if not isinstance(links, list):
+        return None
+    for link in links:
+        if not isinstance(link, dict):
+            continue
+        if link.get("relation") != "next":
+            continue
+        url = link.get("url")
+        if isinstance(url, str) and url.strip():
+            return url.strip()
+    return None
+
+
+def _search_patient_bundles(params: dict[str, str] | None, http_client: Any) -> list[dict[str, Any]]:
+    bundle = http_client.get_fhir("Patient", params=params)
+    entries = _bundle_entries(bundle)
+    next_url = _next_link(bundle)
+    pages_fetched = 1
+    while next_url and pages_fetched < FHIR_PATIENT_MAX_PAGES:
+        bundle = http_client.get_fhir_url(next_url)
+        entries.extend(_bundle_entries(bundle))
+        next_url = _next_link(bundle)
+        pages_fetched += 1
+    return entries
+
+
 def search_patients_api(query: str, http_client: Any) -> list[PatientMatch]:
     q = (query or "").strip()
-    if not q:
-        return []
     parts = q.split()
     try:
-        if len(parts) == 1:
-            bundle = http_client.get_fhir("Patient", params={"name": q})
+        if not q:
+            entries = _search_patient_bundles({"_count": FHIR_PATIENT_PAGE_SIZE}, http_client)
+        elif len(parts) == 1:
+            entries = _search_patient_bundles({"name": q, "_count": FHIR_PATIENT_PAGE_SIZE}, http_client)
         else:
             given = parts[0]
             family = parts[-1]
-            bundle = http_client.get_fhir("Patient", params={"given": given, "family": family})
-            entries_check = bundle.get("entry") if isinstance(bundle, dict) else None
-            if not entries_check or not isinstance(entries_check, list):
-                bundle = http_client.get_fhir("Patient", params={"name": family})
+            entries = _search_patient_bundles({"given": given, "family": family, "_count": FHIR_PATIENT_PAGE_SIZE}, http_client)
+            if not entries:
+                entries = _search_patient_bundles({"name": family, "_count": FHIR_PATIENT_PAGE_SIZE}, http_client)
     except ToolError:
         raise
-    entries = bundle.get("entry") if isinstance(bundle, dict) else None
-    if not entries or not isinstance(entries, list):
+    if not entries:
         return []
     out = []
     for entry in entries:

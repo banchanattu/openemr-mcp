@@ -38,14 +38,21 @@ def test_patient_search_no_results():
     assert len(results) == 0
 
 
-def test_patient_search_empty_query_raises():
-    import pytest
-
-    from openemr_mcp.repositories._errors import ToolError
+def test_patient_search_empty_query_returns_all_mock_patients():
     from openemr_mcp.tools.patient import run_patient_search
 
-    with pytest.raises(ToolError, match="No patient found\\."):
-        run_patient_search("")
+    results = run_patient_search("")
+    assert isinstance(results, list)
+    assert len(results) == 24
+
+
+def test_patient_search_rejects_unsupported_data_source(monkeypatch):
+    from openemr_mcp.tools.patient import run_patient_search
+
+    monkeypatch.setenv("OPENEMR_DATA_SOURCE", "db")
+
+    with pytest.raises(ToolError, match="Unsupported OPENEMR_DATA_SOURCE 'db'"):
+        run_patient_search("John")
 
 
 # ---------------------------------------------------------------------------
@@ -277,6 +284,7 @@ def test_drug_safety_flag_crud(tmp_path, monkeypatch):
 
     # Redirect the SQLite DB to a temp directory
     test_db = tmp_path / "flags.db"
+    ds_repo.close_db()
     monkeypatch.setattr(ds_repo, "_DB_PATH", test_db)
     monkeypatch.setattr(ds_repo, "_conn", None)
 

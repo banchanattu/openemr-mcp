@@ -1,10 +1,8 @@
 """
-OpenEMR OAuth2 token management: registration, client enablement, password grant, refresh, cache.
+OpenEMR OAuth2 token management: registration, password grant, refresh, cache.
 Sync implementation; no tokens or secrets in logs.
 """
 
-import logging
-import subprocess
 import threading
 import time
 
@@ -12,8 +10,6 @@ import httpx
 
 from openemr_mcp.config import settings
 from openemr_mcp.request_auth import get_request_auth_context
-
-logger = logging.getLogger(__name__)
 
 OAUTH_SCOPES = (
     "openid offline_access api:oemr api:fhir "
@@ -52,49 +48,6 @@ def register_client(scopes: str, _settings=None) -> tuple[str, str]:
     if not client_id or not client_secret:
         raise OpenEMROAuthError("OpenEMR OAuth2 registration response missing client credentials")
     return (client_id, client_secret)
-
-
-def ensure_client_enabled(_settings=None, client_id: str | None = None) -> None:
-    if not client_id:
-        return
-    s = _settings if _settings is not None else settings
-    try:
-        import pymysql
-
-        conn = pymysql.connect(
-            host=s.openemr_db_host,
-            port=s.openemr_db_port,
-            user=s.openemr_db_user,
-            password=s.openemr_db_password,
-            database=s.openemr_db_name,
-        )
-        try:
-            with conn.cursor() as cur:
-                cur.execute("UPDATE oauth_clients SET is_enabled = 1 WHERE client_id = %s", (client_id,))
-            conn.commit()
-            logger.info("OpenEMR OAuth client enabled via SQL")
-        finally:
-            conn.close()
-    except Exception as e:
-        if s.openemr_docker_service and s.openemr_docker_cwd:
-            cmd = [
-                "docker",
-                "compose",
-                "exec",
-                "-T",
-                s.openemr_docker_service,
-                "mariadb",
-                "-u",
-                s.openemr_db_user,
-                f"-p{s.openemr_db_password}",
-                "-e",
-                f"USE {s.openemr_db_name}; UPDATE oauth_clients SET is_enabled=1 WHERE client_id='{client_id}';",
-            ]
-            result = subprocess.run(cmd, cwd=s.openemr_docker_cwd, capture_output=True, text=True)
-            if result.returncode != 0:
-                logger.warning("OpenEMR OAuth client enable via docker failed: %s", result.stderr)
-        else:
-            logger.warning("OpenEMR OAuth client enable (SQL) failed: %s", e)
 
 
 class OAuth2TokenManager:
@@ -144,8 +97,6 @@ class OAuth2TokenManager:
 
     def _do_registration(self) -> None:
         self._client_id, self._client_secret = register_client(OAUTH_SCOPES, self._settings)
-        if self._settings.openemr_enable_client_via_sql:
-            ensure_client_enabled(self._settings, self._client_id)
 
     def _password_grant(self) -> str:
         data = {

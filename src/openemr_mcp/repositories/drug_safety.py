@@ -6,6 +6,7 @@ Storage: SQLite (no external dependencies; works in mock mode and production).
          Falls back to in-memory store when filesystem is read-only.
 """
 
+import atexit
 import logging
 import sqlite3
 import uuid
@@ -71,6 +72,20 @@ def _db() -> sqlite3.Connection:
     return _conn
 
 
+def close_db() -> None:
+    """Close the cached SQLite connection and clear module state."""
+    global _conn
+    if _conn is None:
+        return
+    try:
+        _conn.close()
+    finally:
+        _conn = None
+
+
+atexit.register(close_db)
+
+
 def reset_for_tests() -> None:
     """Drop and recreate the table. Used by test fixtures to ensure isolation."""
     global _conn
@@ -79,8 +94,7 @@ def reset_for_tests() -> None:
         _conn.commit()
         _init_db(_conn)
     else:
-        _conn = sqlite3.connect(":memory:")
-        _conn.row_factory = sqlite3.Row
+        _conn = _get_connection()
         _init_db(_conn)
 
 

@@ -3,12 +3,21 @@
 import logging
 import os
 
+from openemr_mcp.repositories._errors import ToolError
+
 logger = logging.getLogger(__name__)
+
+SUPPORTED_DATA_SOURCES = {"mock", "api"}
 
 
 def get_effective_data_source() -> str:
-    """Return the active data source: 'mock' | 'db' | 'api'."""
-    return os.environ.get("OPENEMR_DATA_SOURCE", "mock").strip().lower()
+    """Return the active data source: 'mock' | 'api'."""
+    source = os.environ.get("OPENEMR_DATA_SOURCE", "mock").strip().lower()
+    if source not in SUPPORTED_DATA_SOURCES:
+        raise ToolError(
+            f"Unsupported OPENEMR_DATA_SOURCE '{source}'. Supported values are: api, mock."
+        )
+    return source
 
 
 def get_http_client():
@@ -62,6 +71,12 @@ def get_http_client():
 
             base = settings.openemr_api_base_url.rstrip("/")
             url = f"{base}/fhir/{resource_path}"
+            return self.get_fhir_url(url, params=params)
+
+        def get_fhir_url(self, url: str, params: dict | None = None) -> dict:
+            """GET an absolute FHIR pagination URL returned by Bundle.link."""
+            import httpx
+
             headers = self._get_headers()
             try:
                 r = httpx.get(url, params=params, headers=headers, timeout=15.0)
