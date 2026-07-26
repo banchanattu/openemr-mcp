@@ -156,11 +156,6 @@ def run_appointment_list(patient_id: str) -> list[Appointment]:
     if not pid:
         return []
     ds = get_effective_data_source()
-    if ds == "db":
-        from openemr_mcp.repositories.appointment import get_appointments
-        from openemr_mcp.repositories.patient import get_openemr_connection
-
-        return get_appointments(pid, get_openemr_connection)
     if ds == "api":
         from openemr_mcp.repositories.fhir_api import get_appointments_api
 

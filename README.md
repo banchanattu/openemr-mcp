@@ -8,11 +8,11 @@
 
 ## Features
 
-17 MCP tools covering:
+19 MCP tools covering:
 
 | Category | Tools |
 |---|---|
-| Patients | `openemr_patient_search` |
+| Patients | `openemr_patient_search`, `openemr_patient_list`, `openemr_patient_create` |
 | Appointments | `openemr_appointment_list` |
 | Medications | `openemr_medication_list`, `openemr_drug_interaction_check` |
 | Providers | `openemr_provider_search` |
@@ -81,6 +81,67 @@ Quick smoke test from another terminal:
 uv run python examples/smoke_test_http.py --url http://127.0.0.1:8305/mcp
 ```
 
+## Local vs Docker Config
+
+This repo uses different env files for local and Docker startup:
+
+| Startup path | Env file | OpenEMR host to use |
+|---|---|---|
+| `./startlocal.sh` or direct `openemr-mcp` from repo root | `.env.local` or `.env` | `http://localhost:8300/apis/default` |
+| `./startdocker.sh` | `.env.docker` or `.env` | `http://host.docker.internal:8300/apis/default` |
+
+Why the host changes:
+
+- A local process can reach your OpenEMR instance at `localhost`.
+- A Docker container cannot use its own `localhost` to reach your host machine, so it must use `host.docker.internal`.
+
+This repository now includes a sample `.env.docker` configured for a host OpenEMR instance on port `8300`:
+
+```env
+OPENEMR_DATA_SOURCE=api
+OPENEMR_API_BASE_URL=http://host.docker.internal:8300/apis/default
+OPENEMR_API_VERIFY_SSL=false
+```
+
+If your OpenEMR requires OAuth credentials, either:
+
+- set them in `.env.docker`, or
+- export them in your shell before running `./startdocker.sh`
+
+To switch back to mock mode:
+
+```env
+OPENEMR_DATA_SOURCE=mock
+```
+
+For Docker, you can put that in `.env.docker`. For local runs, put it in `.env.local`.
+
+### Common Modes
+
+Local process against your OpenEMR instance:
+
+```env
+# .env.local
+OPENEMR_DATA_SOURCE=api
+OPENEMR_API_BASE_URL=http://localhost:8300/apis/default
+OPENEMR_API_VERIFY_SSL=false
+```
+
+Docker container against your OpenEMR instance:
+
+```env
+# .env.docker
+OPENEMR_DATA_SOURCE=api
+OPENEMR_API_BASE_URL=http://host.docker.internal:8300/apis/default
+OPENEMR_API_VERIFY_SSL=false
+```
+
+Mock mode for either startup path:
+
+```env
+OPENEMR_DATA_SOURCE=mock
+```
+
 ## Claude Desktop Configuration
 
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
@@ -128,7 +189,6 @@ For mock mode (demo / evaluation):
 | Value | Description |
 |---|---|
 | `mock` (default) | Built-in curated demo data — 24 patients, no network required |
-| `db` | Direct MySQL connection to OpenEMR database |
 | `api` | OpenEMR FHIR R4 REST API (recommended for production) |
 
 ### Drug Interactions (`DRUG_INTERACTION_SOURCE`)
@@ -161,20 +221,13 @@ Key variables:
 
 ```bash
 # Data source
-OPENEMR_DATA_SOURCE=mock        # mock | db | api
+OPENEMR_DATA_SOURCE=mock        # mock | api
 
 # MCP transport
 OPENEMR_MCP_TRANSPORT=stdio     # stdio | streamable-http
 OPENEMR_MCP_HOST=127.0.0.1
 OPENEMR_MCP_PORT=8305
 OPENEMR_MCP_PATH=/mcp
-
-# MySQL (when OPENEMR_DATA_SOURCE=db)
-OPENEMR_DB_HOST=localhost
-OPENEMR_DB_PORT=3306
-OPENEMR_DB_USER=openemr
-OPENEMR_DB_PASSWORD=openemr
-OPENEMR_DB_NAME=openemr
 
 # FHIR API (when OPENEMR_DATA_SOURCE=api)
 OPENEMR_API_BASE_URL=https://your-openemr/apis/default
@@ -200,6 +253,25 @@ Search patients by name. Returns patient ID, DOB, sex, city.
 
 ```json
 { "query": "Jane" }
+```
+
+### `openemr_patient_list`
+List patients with a configurable maximum number of results.
+
+```json
+{ "limit": 50 }
+```
+
+### `openemr_patient_create`
+Create a patient with the required demographic fields.
+
+```json
+{
+  "first_name": "Jane",
+  "last_name": "Example",
+  "date_of_birth": "1990-07-22",
+  "birth_sex": "Female"
+}
 ```
 
 ### `openemr_appointment_list`
@@ -339,13 +411,13 @@ OPENEMR_DATA_SOURCE=mock openemr-mcp
 
 ```
 src/openemr_mcp/
-├── server.py              # MCP server — registers all 17 tools
+├── server.py              # MCP server — registers all 19 tools
 ├── config.py              # Pydantic-settings configuration
 ├── schemas.py             # All Pydantic response schemas
 ├── auth.py                # OpenEMR OAuth2 token manager
 ├── data_source.py         # Data source resolver
-├── tools/                 # 13 tool modules (17 MCP tools)
-├── repositories/          # Data access (MySQL, FHIR R4, SQLite)
+├── tools/                 # 13 tool modules (19 MCP tools)
+├── repositories/          # Data access (FHIR R4, SQLite)
 └── services/              # Business logic (OpenFDA, trajectory alerts, visit prep)
 ```
 

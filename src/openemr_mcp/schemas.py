@@ -17,6 +17,13 @@ class PatientMatch(BaseModel):
     city: str | None = None
 
 
+class PatientCreate(BaseModel):
+    first_name: str = Field(..., min_length=1, max_length=100)
+    last_name: str = Field(..., min_length=1, max_length=100)
+    date_of_birth: str = Field(..., min_length=10, max_length=10)
+    birth_sex: str = Field(..., min_length=1, max_length=20)
+
+
 # ---------------------------------------------------------------------------
 # Appointments
 # ---------------------------------------------------------------------------

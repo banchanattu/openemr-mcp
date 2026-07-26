@@ -170,14 +170,6 @@ def run_lab_trends(
         for m in target_metrics:
             codes.extend(LAB_LOINC_CODES.get(m, []))
         raw_points = get_observation_trends_api(patient_id, "laboratory", from_date, codes or None, get_http_client())
-    elif ds == "db":
-        from openemr_mcp.repositories.patient import get_openemr_connection
-        from openemr_mcp.repositories.trajectory import get_lab_trends_db
-
-        codes = []
-        for m in target_metrics:
-            codes.extend(LAB_LOINC_CODES.get(m, []))
-        raw_points = get_lab_trends_db(patient_id, from_date, codes or None, get_openemr_connection)
     else:
         pid = patient_id.lower()
         if not pid.startswith("p"):

@@ -116,11 +116,6 @@ def run_vital_trends(
             codes.extend(VITAL_LOINC_CODES.get(m, []))
         codes = list(dict.fromkeys(codes))
         raw_points = get_observation_trends_api(patient_id, "vital-signs", from_date, codes or None, get_http_client())
-    elif ds == "db":
-        from openemr_mcp.repositories.patient import get_openemr_connection
-        from openemr_mcp.repositories.trajectory import get_vitals_trends_db
-
-        raw_points = get_vitals_trends_db(patient_id, from_date, get_openemr_connection)
     else:
         pid = patient_id.lower()
         if not pid.startswith("p"):

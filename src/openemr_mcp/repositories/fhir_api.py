@@ -7,13 +7,10 @@ import re
 from typing import Any
 
 from openemr_mcp.repositories._errors import ToolError
-from openemr_mcp.schemas import (
-    Appointment,
-    Medication,
-    PatientMatch,
-    Provider,
-    TrajectoryPoint,
-)
+from openemr_mcp.schemas import Appointment, Medication, PatientCreate, PatientMatch, Provider, TrajectoryPoint
+
+FHIR_PATIENT_PAGE_SIZE = "200"
+FHIR_PATIENT_MAX_PAGES = 25
 
 
 def _patient_id_from_fhir_id(resource_id: str) -> str:
@@ -46,64 +43,47 @@ def _full_name_from_fhir_name(name_list: Any) -> str | None:
     return " ".join(parts).strip() or None
 
 
-def search_patients_api(query: str, http_client: Any) -> list[PatientMatch]:
-    q = (query or "").strip()
-    if not q:
-        return []
-    parts = q.split()
-    try:
-        if len(parts) == 1:
-            bundle = http_client.get_fhir("Patient", params={"name": q})
-        else:
-            given = parts[0]
-            family = parts[-1]
-            bundle = http_client.get_fhir("Patient", params={"given": given, "family": family})
-            entries_check = bundle.get("entry") if isinstance(bundle, dict) else None
-            if not entries_check or not isinstance(entries_check, list):
-                bundle = http_client.get_fhir("Patient", params={"name": family})
-    except ToolError:
-        raise
+def _bundle_entries(bundle: Any) -> list[dict[str, Any]]:
     entries = bundle.get("entry") if isinstance(bundle, dict) else None
-    if not entries or not isinstance(entries, list):
+    if not isinstance(entries, list):
         return []
-    out = []
-    for entry in entries:
-        resource = entry.get("resource") if isinstance(entry, dict) else None
-        if not resource or not isinstance(resource, dict):
-            continue
-        if resource.get("resourceType") != "Patient":
-            continue
-        pid = _patient_id_from_fhir_id(resource.get("id"))
-        if not pid:
-            continue
-        full_name = _full_name_from_fhir_name(resource.get("name")) or "Unknown"
-        dob = resource.get("birthDate")
-        if dob is not None:
-            dob = str(dob).strip() or None
-        sex = resource.get("gender")
-        if sex is not None:
-            sex = str(sex).strip() or None
-        city = None
-        addr = resource.get("address")
-        if isinstance(addr, list) and len(addr) > 0 and isinstance(addr[0], dict):
-            city = addr[0].get("city")
-            if city is not None:
-                city = str(city).strip() or None
-        out.append(PatientMatch(patient_id=pid, full_name=full_name, dob=dob, sex=sex, city=city))
-    return out
+    return [entry for entry in entries if isinstance(entry, dict)]
 
 
-def get_patient_by_pid_api(pid: int, http_client: Any) -> PatientMatch | None:
-    try:
-        resource = http_client.get_fhir(f"Patient/{pid}")
-    except ToolError:
-        raise
-    if not isinstance(resource, dict) or resource.get("resourceType") != "Patient":
+def _next_link(bundle: Any) -> str | None:
+    links = bundle.get("link") if isinstance(bundle, dict) else None
+    if not isinstance(links, list):
         return None
-    fhir_id = resource.get("id")
-    if not fhir_id:
+    for link in links:
+        if not isinstance(link, dict):
+            continue
+        if link.get("relation") != "next":
+            continue
+        url = link.get("url")
+        if isinstance(url, str) and url.strip():
+            return url.strip()
+    return None
+
+
+def _search_patient_bundles(params: dict[str, str] | None, http_client: Any) -> list[dict[str, Any]]:
+    bundle = http_client.get_fhir("Patient", params=params)
+    entries = _bundle_entries(bundle)
+    next_url = _next_link(bundle)
+    pages_fetched = 1
+    while next_url and pages_fetched < FHIR_PATIENT_MAX_PAGES:
+        bundle = http_client.get_fhir_url(next_url)
+        entries.extend(_bundle_entries(bundle))
+        next_url = _next_link(bundle)
+        pages_fetched += 1
+    return entries
+
+
+def _patient_match_from_resource(resource: dict[str, Any]) -> PatientMatch | None:
+    if resource.get("resourceType") != "Patient":
         return None
-    patient_id = _patient_id_from_fhir_id(fhir_id)
+    pid = _patient_id_from_fhir_id(resource.get("id"))
+    if not pid:
+        return None
     full_name = _full_name_from_fhir_name(resource.get("name")) or "Unknown"
     dob = resource.get("birthDate")
     if dob is not None:
@@ -117,7 +97,99 @@ def get_patient_by_pid_api(pid: int, http_client: Any) -> PatientMatch | None:
         city = addr[0].get("city")
         if city is not None:
             city = str(city).strip() or None
-    return PatientMatch(patient_id=patient_id, full_name=full_name, dob=dob, sex=sex, city=city)
+    return PatientMatch(patient_id=pid, full_name=full_name, dob=dob, sex=sex, city=city)
+
+
+def list_patients_api(limit: int, http_client: Any) -> list[PatientMatch]:
+    entries = _search_patient_bundles({"_count": str(limit)}, http_client)
+    out: list[PatientMatch] = []
+    for entry in entries:
+        resource = entry.get("resource") if isinstance(entry, dict) else None
+        if not resource or not isinstance(resource, dict):
+            continue
+        patient = _patient_match_from_resource(resource)
+        if patient is None:
+            continue
+        out.append(patient)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def search_patients_api(query: str, http_client: Any) -> list[PatientMatch]:
+    q = (query or "").strip()
+    parts = q.split()
+    try:
+        if not q:
+            entries = _search_patient_bundles({"_count": FHIR_PATIENT_PAGE_SIZE}, http_client)
+        elif len(parts) == 1:
+            entries = _search_patient_bundles({"name": q, "_count": FHIR_PATIENT_PAGE_SIZE}, http_client)
+        else:
+            given = parts[0]
+            family = parts[-1]
+            entries = _search_patient_bundles({"given": given, "family": family, "_count": FHIR_PATIENT_PAGE_SIZE}, http_client)
+            if not entries:
+                entries = _search_patient_bundles({"name": family, "_count": FHIR_PATIENT_PAGE_SIZE}, http_client)
+    except ToolError:
+        raise
+    if not entries:
+        return []
+    out = []
+    for entry in entries:
+        resource = entry.get("resource") if isinstance(entry, dict) else None
+        if not resource or not isinstance(resource, dict):
+            continue
+        patient = _patient_match_from_resource(resource)
+        if patient is not None:
+            out.append(patient)
+    return out
+
+
+def get_patient_by_pid_api(pid: int, http_client: Any) -> PatientMatch | None:
+    try:
+        resource = http_client.get_fhir(f"Patient/{pid}")
+    except ToolError:
+        raise
+    if not isinstance(resource, dict):
+        return None
+    return _patient_match_from_resource(resource)
+
+
+def create_patient_api(payload: PatientCreate, http_client: Any) -> PatientMatch:
+    resource = {
+        "resourceType": "Patient",
+        "active": True,
+        "name": [
+            {
+                "use": "official",
+                "given": [payload.first_name],
+                "family": payload.last_name,
+            }
+        ],
+        "birthDate": payload.date_of_birth,
+        "gender": payload.birth_sex.lower(),
+    }
+    created = http_client.post_fhir("Patient", resource)
+    if not isinstance(created, dict):
+        raise ToolError("FHIR API returned an invalid Patient create response.")
+    created_id = created.get("id") or created.get("uuid")
+    patient_id = _patient_id_from_fhir_id(created_id)
+    if not patient_id:
+        raise ToolError("FHIR API create response missing patient id.")
+    full_name = _full_name_from_fhir_name(created.get("name")) or f"{payload.first_name} {payload.last_name}"
+    city = None
+    addr = created.get("address")
+    if isinstance(addr, list) and addr and isinstance(addr[0], dict):
+        city = addr[0].get("city")
+        if city is not None:
+            city = str(city).strip() or None
+    return PatientMatch(
+        patient_id=patient_id,
+        full_name=full_name,
+        dob=str(created.get("birthDate") or payload.date_of_birth),
+        sex=str(created.get("gender") or payload.birth_sex).strip().title(),
+        city=city,
+    )
 
 
 def _fhir_patient_ref(patient_id_str: str) -> str | None:
