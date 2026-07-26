@@ -1,4 +1,4 @@
-"""Smoke tests — verify all 18 MCP tools return expected types in mock mode."""
+"""Smoke tests — verify all 19 MCP tools return expected types in mock mode."""
 
 import pytest
 
@@ -39,12 +39,35 @@ def test_patient_search_no_results():
     assert len(results) == 0
 
 
-def test_patient_search_empty_query_returns_all_mock_patients():
+def test_patient_search_empty_query_rejected():
     from openemr_mcp.tools.patient import run_patient_search
 
-    results = run_patient_search("")
+    with pytest.raises(ToolError, match="query is required for patient search"):
+        run_patient_search("")
+
+
+def test_patient_list_default_limit():
+    from openemr_mcp.tools.patient import run_patient_list
+
+    results = run_patient_list()
     assert isinstance(results, list)
     assert len(results) == 24
+
+
+def test_patient_list_custom_limit():
+    from openemr_mcp.tools.patient import run_patient_list
+
+    results = run_patient_list(limit=5)
+    assert isinstance(results, list)
+    assert len(results) == 5
+    assert results[0].patient_id == "p001"
+
+
+def test_patient_list_rejects_invalid_limit():
+    from openemr_mcp.tools.patient import run_patient_list
+
+    with pytest.raises(ToolError, match="limit must be greater than 0"):
+        run_patient_list(limit=0)
 
 
 def test_patient_search_rejects_unsupported_data_source(monkeypatch):

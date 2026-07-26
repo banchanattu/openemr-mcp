@@ -39,6 +39,7 @@ _VALID_BIRTH_SEX = {
     "other": "Other",
     "unknown": "Unknown",
 }
+DEFAULT_PATIENT_LIST_LIMIT = 50
 
 
 def _normalize_name_part(value: str, field_name: str) -> str:
@@ -80,15 +81,37 @@ def _next_mock_patient_id() -> str:
     return f"p{max_pid + 1:03d}"
 
 
+def _normalize_patient_list_limit(limit: int | None) -> int:
+    if limit is None:
+        return DEFAULT_PATIENT_LIST_LIMIT
+    try:
+        normalized = int(limit)
+    except (TypeError, ValueError) as exc:
+        raise ToolError("limit must be an integer.") from exc
+    if normalized <= 0:
+        raise ToolError("limit must be greater than 0.")
+    return normalized
+
+
+def run_patient_list(limit: int = DEFAULT_PATIENT_LIST_LIMIT) -> list[PatientMatch]:
+    normalized_limit = _normalize_patient_list_limit(limit)
+    ds = get_effective_data_source()
+    if ds == "api":
+        from openemr_mcp.repositories.fhir_api import list_patients_api
+
+        return list_patients_api(normalized_limit, get_http_client())
+    return list(MOCK_PATIENTS[:normalized_limit])
+
+
 def run_patient_search(query: str) -> list[PatientMatch]:
     q = (query or "").strip()
+    if not q:
+        raise ToolError("query is required for patient search. Use patient_list to list patients.")
     ds = get_effective_data_source()
     if ds == "api":
         from openemr_mcp.repositories.fhir_api import search_patients_api
 
         return search_patients_api(q, get_http_client())
-    if not q:
-        return list(MOCK_PATIENTS)
     q_lower = q.lower()
     return [p for p in MOCK_PATIENTS if q_lower in p.full_name.lower()]
 

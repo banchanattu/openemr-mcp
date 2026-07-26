@@ -8,11 +8,11 @@
 
 ## Features
 
-18 MCP tools covering:
+19 MCP tools covering:
 
 | Category | Tools |
 |---|---|
-| Patients | `openemr_patient_search`, `openemr_patient_create` |
+| Patients | `openemr_patient_search`, `openemr_patient_list`, `openemr_patient_create` |
 | Appointments | `openemr_appointment_list` |
 | Medications | `openemr_medication_list`, `openemr_drug_interaction_check` |
 | Providers | `openemr_provider_search` |
@@ -255,6 +255,13 @@ Search patients by name. Returns patient ID, DOB, sex, city.
 { "query": "Jane" }
 ```
 
+### `openemr_patient_list`
+List patients with a configurable maximum number of results.
+
+```json
+{ "limit": 50 }
+```
+
 ### `openemr_patient_create`
 Create a patient with the required demographic fields.
 
@@ -404,12 +411,12 @@ OPENEMR_DATA_SOURCE=mock openemr-mcp
 
 ```
 src/openemr_mcp/
-├── server.py              # MCP server — registers all 18 tools
+├── server.py              # MCP server — registers all 19 tools
 ├── config.py              # Pydantic-settings configuration
 ├── schemas.py             # All Pydantic response schemas
 ├── auth.py                # OpenEMR OAuth2 token manager
 ├── data_source.py         # Data source resolver
-├── tools/                 # 13 tool modules (18 MCP tools)
+├── tools/                 # 13 tool modules (19 MCP tools)
 ├── repositories/          # Data access (FHIR R4, SQLite)
 └── services/              # Business logic (OpenFDA, trajectory alerts, visit prep)
 ```

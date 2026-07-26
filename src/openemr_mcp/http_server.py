@@ -116,6 +116,13 @@ def build_http_server(host: str, port: int, path: str) -> FastMCP:
         )
 
     @mcp.tool(
+        name="openemr_patient_list",
+        description=_tool_description("openemr_patient_list"),
+    )
+    def openemr_patient_list(limit: int = 50) -> Any:
+        return _invoke_tool("openemr_patient_list", {"limit": limit})
+
+    @mcp.tool(
         name="openemr_appointment_list",
         description=_tool_description("openemr_appointment_list"),
     )

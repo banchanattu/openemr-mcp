@@ -53,7 +53,7 @@ def _get_connection() -> sqlite3.Connection:
         _log.warning("Cannot write to %s — using in-memory SQLite", _DB_PATH)
         conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
-    return conn
+    return _track_connection(conn)
 
 
 def _init_db(conn: sqlite3.Connection) -> None:
@@ -62,6 +62,7 @@ def _init_db(conn: sqlite3.Connection) -> None:
 
 
 _conn: sqlite3.Connection | None = None
+_open_connections: list[sqlite3.Connection] = []
 
 
 def _db() -> sqlite3.Connection:
@@ -72,15 +73,28 @@ def _db() -> sqlite3.Connection:
     return _conn
 
 
+def _track_connection(conn: sqlite3.Connection) -> sqlite3.Connection:
+    _open_connections.append(conn)
+    return conn
+
+
 def close_db() -> None:
-    """Close the cached SQLite connection and clear module state."""
+    """Close all cached SQLite connections and clear module state."""
     global _conn
-    if _conn is None:
-        return
-    try:
-        _conn.close()
-    finally:
-        _conn = None
+    seen: set[int] = set()
+    for conn in [*_open_connections, _conn]:
+        if conn is None:
+            continue
+        conn_id = id(conn)
+        if conn_id in seen:
+            continue
+        seen.add(conn_id)
+        try:
+            conn.close()
+        except Exception:
+            pass
+    _open_connections.clear()
+    _conn = None
 
 
 atexit.register(close_db)

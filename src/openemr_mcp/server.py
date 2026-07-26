@@ -1,7 +1,7 @@
 """
 OpenEMR MCP Server — Model Context Protocol server for OpenEMR.
 
-Registers 18 tools: patient search/create, appointments, medications, drug interactions,
+Registers 19 tools: patient search/list/create, appointments, medications, drug interactions,
 provider search, FDA adverse events, FDA drug labels, symptom lookup, drug safety
 flag CRUD, lab trends, vital trends, questionnaire trends, health trajectory,
 and visit prep.
@@ -39,7 +39,7 @@ server = Server("openemr-mcp")
 _TOOLS = [
     types.Tool(
         name="openemr_patient_search",
-        description="Search OpenEMR patients by name. Returns matching patient records with ID, DOB, sex, and city.",
+        description="Search OpenEMR patients by name or partial name. Requires a non-empty query. Do not use this tool to list all patients.",
         inputSchema={
             "type": "object",
             "properties": {
@@ -64,6 +64,20 @@ _TOOLS = [
                 },
             },
             "required": ["first_name", "last_name", "date_of_birth", "birth_sex"],
+        },
+    ),
+    types.Tool(
+        name="openemr_patient_list",
+        description="List patients. Use this tool when the user asks for all patients or a general patient list.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of patients to return (default 50)",
+                    "default": 50,
+                },
+            },
         },
     ),
     types.Tool(
@@ -373,6 +387,11 @@ def _dispatch(name: str, args: dict) -> Any:
             date_of_birth=args["date_of_birth"],
             birth_sex=args["birth_sex"],
         )
+
+    if name == "openemr_patient_list":
+        from openemr_mcp.tools.patient import run_patient_list
+
+        return run_patient_list(limit=args.get("limit", 50))
 
     if name == "openemr_appointment_list":
         from openemr_mcp.tools.appointments import run_appointment_list

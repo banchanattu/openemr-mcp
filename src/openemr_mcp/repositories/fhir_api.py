@@ -78,6 +78,44 @@ def _search_patient_bundles(params: dict[str, str] | None, http_client: Any) -> 
     return entries
 
 
+def _patient_match_from_resource(resource: dict[str, Any]) -> PatientMatch | None:
+    if resource.get("resourceType") != "Patient":
+        return None
+    pid = _patient_id_from_fhir_id(resource.get("id"))
+    if not pid:
+        return None
+    full_name = _full_name_from_fhir_name(resource.get("name")) or "Unknown"
+    dob = resource.get("birthDate")
+    if dob is not None:
+        dob = str(dob).strip() or None
+    sex = resource.get("gender")
+    if sex is not None:
+        sex = str(sex).strip() or None
+    city = None
+    addr = resource.get("address")
+    if isinstance(addr, list) and len(addr) > 0 and isinstance(addr[0], dict):
+        city = addr[0].get("city")
+        if city is not None:
+            city = str(city).strip() or None
+    return PatientMatch(patient_id=pid, full_name=full_name, dob=dob, sex=sex, city=city)
+
+
+def list_patients_api(limit: int, http_client: Any) -> list[PatientMatch]:
+    entries = _search_patient_bundles({"_count": str(limit)}, http_client)
+    out: list[PatientMatch] = []
+    for entry in entries:
+        resource = entry.get("resource") if isinstance(entry, dict) else None
+        if not resource or not isinstance(resource, dict):
+            continue
+        patient = _patient_match_from_resource(resource)
+        if patient is None:
+            continue
+        out.append(patient)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def search_patients_api(query: str, http_client: Any) -> list[PatientMatch]:
     q = (query or "").strip()
     parts = q.split()
@@ -101,25 +139,9 @@ def search_patients_api(query: str, http_client: Any) -> list[PatientMatch]:
         resource = entry.get("resource") if isinstance(entry, dict) else None
         if not resource or not isinstance(resource, dict):
             continue
-        if resource.get("resourceType") != "Patient":
-            continue
-        pid = _patient_id_from_fhir_id(resource.get("id"))
-        if not pid:
-            continue
-        full_name = _full_name_from_fhir_name(resource.get("name")) or "Unknown"
-        dob = resource.get("birthDate")
-        if dob is not None:
-            dob = str(dob).strip() or None
-        sex = resource.get("gender")
-        if sex is not None:
-            sex = str(sex).strip() or None
-        city = None
-        addr = resource.get("address")
-        if isinstance(addr, list) and len(addr) > 0 and isinstance(addr[0], dict):
-            city = addr[0].get("city")
-            if city is not None:
-                city = str(city).strip() or None
-        out.append(PatientMatch(patient_id=pid, full_name=full_name, dob=dob, sex=sex, city=city))
+        patient = _patient_match_from_resource(resource)
+        if patient is not None:
+            out.append(patient)
     return out
 
 
@@ -128,26 +150,9 @@ def get_patient_by_pid_api(pid: int, http_client: Any) -> PatientMatch | None:
         resource = http_client.get_fhir(f"Patient/{pid}")
     except ToolError:
         raise
-    if not isinstance(resource, dict) or resource.get("resourceType") != "Patient":
+    if not isinstance(resource, dict):
         return None
-    fhir_id = resource.get("id")
-    if not fhir_id:
-        return None
-    patient_id = _patient_id_from_fhir_id(fhir_id)
-    full_name = _full_name_from_fhir_name(resource.get("name")) or "Unknown"
-    dob = resource.get("birthDate")
-    if dob is not None:
-        dob = str(dob).strip() or None
-    sex = resource.get("gender")
-    if sex is not None:
-        sex = str(sex).strip() or None
-    city = None
-    addr = resource.get("address")
-    if isinstance(addr, list) and len(addr) > 0 and isinstance(addr[0], dict):
-        city = addr[0].get("city")
-        if city is not None:
-            city = str(city).strip() or None
-    return PatientMatch(patient_id=patient_id, full_name=full_name, dob=dob, sex=sex, city=city)
+    return _patient_match_from_resource(resource)
 
 
 def create_patient_api(payload: PatientCreate, http_client: Any) -> PatientMatch:
