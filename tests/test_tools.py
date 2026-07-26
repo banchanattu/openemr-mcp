@@ -1,4 +1,4 @@
-"""Smoke tests — verify all 17 MCP tools return expected types in mock mode."""
+"""Smoke tests — verify all 18 MCP tools return expected types in mock mode."""
 
 import pytest
 
@@ -11,6 +11,7 @@ from openemr_mcp.schemas import (
     FDADrugLabelResult,
     HealthTrajectoryResponse,
     MedicationListResponse,
+    PatientMatch,
     ProviderSearchResponse,
     SymptomLookupResponse,
     VisitPrepResponse,
@@ -53,6 +54,63 @@ def test_patient_search_rejects_unsupported_data_source(monkeypatch):
 
     with pytest.raises(ToolError, match="Unsupported OPENEMR_DATA_SOURCE 'db'"):
         run_patient_search("John")
+
+
+def test_patient_create_mock_patient():
+    from openemr_mcp.tools.patient import run_create_patient, run_patient_search
+
+    created = run_create_patient("Taylor", "Example", "1994-01-15", "Female")
+    assert isinstance(created, PatientMatch)
+    assert created.patient_id.startswith("p")
+    assert created.full_name == "Taylor Example"
+    assert created.dob == "1994-01-15"
+    assert created.sex == "Female"
+
+    matches = run_patient_search("Taylor Example")
+    assert any(match.patient_id == created.patient_id for match in matches)
+
+
+def test_patient_create_rejects_invalid_birth_sex():
+    from openemr_mcp.tools.patient import run_create_patient
+
+    with pytest.raises(ToolError, match="birth_sex must be one of"):
+        run_create_patient("Chris", "Example", "1994-01-15", "Invalid")
+
+
+def test_create_patient_api_uses_official_name_payload():
+    from openemr_mcp.repositories.fhir_api import create_patient_api
+    from openemr_mcp.schemas import PatientCreate
+
+    captured: dict = {}
+
+    class FakeHttpClient:
+        def post_fhir(self, resource_path: str, json_body: dict) -> dict:
+            captured["resource_path"] = resource_path
+            captured["json_body"] = json_body
+            return {
+                "uuid": "123",
+            }
+
+    patient = create_patient_api(
+        PatientCreate(
+            first_name="Jane",
+            last_name="Example",
+            date_of_birth="1990-07-22",
+            birth_sex="Female",
+        ),
+        FakeHttpClient(),
+    )
+
+    assert captured["resource_path"] == "Patient"
+    assert captured["json_body"]["name"][0]["use"] == "official"
+    assert captured["json_body"]["name"][0]["given"] == ["Jane"]
+    assert captured["json_body"]["name"][0]["family"] == "Example"
+    assert captured["json_body"]["active"] is True
+    assert captured["json_body"]["birthDate"] == "1990-07-22"
+    assert captured["json_body"]["gender"] == "female"
+    assert "extension" not in captured["json_body"]
+    assert patient.patient_id == "p123"
+    assert patient.full_name == "Jane Example"
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,10 @@
 """Patient search tool."""
 
+from datetime import date
+
 from openemr_mcp.data_source import get_effective_data_source, get_http_client
-from openemr_mcp.schemas import PatientMatch
+from openemr_mcp.repositories._errors import ToolError
+from openemr_mcp.schemas import PatientCreate, PatientMatch
 
 MOCK_PATIENTS: list[PatientMatch] = [
     PatientMatch(patient_id="p001", full_name="John Doe", dob="1985-02-10", sex="Male", city="Anytown"),
@@ -29,6 +32,52 @@ MOCK_PATIENTS: list[PatientMatch] = [
     PatientMatch(patient_id="p023", full_name="Aisha Mohammed", dob="1990-11-29", sex="Female", city="Columbus"),
     PatientMatch(patient_id="p024", full_name="John Yoohoo", dob="1991-05-16", sex="Male", city="Reno"),
 ]
+
+_VALID_BIRTH_SEX = {
+    "male": "Male",
+    "female": "Female",
+    "other": "Other",
+    "unknown": "Unknown",
+}
+
+
+def _normalize_name_part(value: str, field_name: str) -> str:
+    cleaned = (value or "").strip()
+    if not cleaned:
+        raise ToolError(f"{field_name} is required.")
+    return cleaned
+
+
+def _normalize_date_of_birth(value: str) -> str:
+    cleaned = (value or "").strip()
+    if not cleaned:
+        raise ToolError("date_of_birth is required.")
+    try:
+        date.fromisoformat(cleaned)
+    except ValueError as exc:
+        raise ToolError("date_of_birth must be in YYYY-MM-DD format.") from exc
+    return cleaned
+
+
+def _normalize_birth_sex(value: str) -> str:
+    cleaned = (value or "").strip().lower()
+    if not cleaned:
+        raise ToolError("birth_sex is required.")
+    normalized = _VALID_BIRTH_SEX.get(cleaned)
+    if normalized is None:
+        raise ToolError("birth_sex must be one of: Male, Female, Other, Unknown.")
+    return normalized
+
+
+def _next_mock_patient_id() -> str:
+    max_pid = 0
+    for patient in MOCK_PATIENTS:
+        raw = patient.patient_id.lstrip("pP")
+        try:
+            max_pid = max(max_pid, int(raw))
+        except ValueError:
+            continue
+    return f"p{max_pid + 1:03d}"
 
 
 def run_patient_search(query: str) -> list[PatientMatch]:
@@ -58,3 +107,31 @@ def run_get_patient_by_id(pid: int) -> PatientMatch | None:
         if p.patient_id in (pid_str_padded, pid_str_plain):
             return p
     return None
+
+
+def run_create_patient(
+    first_name: str,
+    last_name: str,
+    date_of_birth: str,
+    birth_sex: str,
+) -> PatientMatch:
+    payload = PatientCreate(
+        first_name=_normalize_name_part(first_name, "first_name"),
+        last_name=_normalize_name_part(last_name, "last_name"),
+        date_of_birth=_normalize_date_of_birth(date_of_birth),
+        birth_sex=_normalize_birth_sex(birth_sex),
+    )
+    ds = get_effective_data_source()
+    if ds == "api":
+        from openemr_mcp.repositories.fhir_api import create_patient_api
+
+        return create_patient_api(payload, get_http_client())
+    patient = PatientMatch(
+        patient_id=_next_mock_patient_id(),
+        full_name=f"{payload.first_name} {payload.last_name}",
+        dob=payload.date_of_birth,
+        sex=payload.birth_sex,
+        city=None,
+    )
+    MOCK_PATIENTS.append(patient)
+    return patient

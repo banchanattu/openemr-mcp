@@ -96,6 +96,26 @@ def build_http_server(host: str, port: int, path: str) -> FastMCP:
         return _invoke_tool("openemr_patient_search", {"query": query})
 
     @mcp.tool(
+        name="openemr_patient_create",
+        description=_tool_description("openemr_patient_create"),
+    )
+    def openemr_patient_create(
+        first_name: str,
+        last_name: str,
+        date_of_birth: str,
+        birth_sex: str,
+    ) -> Any:
+        return _invoke_tool(
+            "openemr_patient_create",
+            {
+                "first_name": first_name,
+                "last_name": last_name,
+                "date_of_birth": date_of_birth,
+                "birth_sex": birth_sex,
+            },
+        )
+
+    @mcp.tool(
         name="openemr_appointment_list",
         description=_tool_description("openemr_appointment_list"),
     )

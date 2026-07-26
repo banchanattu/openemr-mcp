@@ -7,13 +7,7 @@ import re
 from typing import Any
 
 from openemr_mcp.repositories._errors import ToolError
-from openemr_mcp.schemas import (
-    Appointment,
-    Medication,
-    PatientMatch,
-    Provider,
-    TrajectoryPoint,
-)
+from openemr_mcp.schemas import Appointment, Medication, PatientCreate, PatientMatch, Provider, TrajectoryPoint
 
 FHIR_PATIENT_PAGE_SIZE = "200"
 FHIR_PATIENT_MAX_PAGES = 25
@@ -154,6 +148,43 @@ def get_patient_by_pid_api(pid: int, http_client: Any) -> PatientMatch | None:
         if city is not None:
             city = str(city).strip() or None
     return PatientMatch(patient_id=patient_id, full_name=full_name, dob=dob, sex=sex, city=city)
+
+
+def create_patient_api(payload: PatientCreate, http_client: Any) -> PatientMatch:
+    resource = {
+        "resourceType": "Patient",
+        "active": True,
+        "name": [
+            {
+                "use": "official",
+                "given": [payload.first_name],
+                "family": payload.last_name,
+            }
+        ],
+        "birthDate": payload.date_of_birth,
+        "gender": payload.birth_sex.lower(),
+    }
+    created = http_client.post_fhir("Patient", resource)
+    if not isinstance(created, dict):
+        raise ToolError("FHIR API returned an invalid Patient create response.")
+    created_id = created.get("id") or created.get("uuid")
+    patient_id = _patient_id_from_fhir_id(created_id)
+    if not patient_id:
+        raise ToolError("FHIR API create response missing patient id.")
+    full_name = _full_name_from_fhir_name(created.get("name")) or f"{payload.first_name} {payload.last_name}"
+    city = None
+    addr = created.get("address")
+    if isinstance(addr, list) and addr and isinstance(addr[0], dict):
+        city = addr[0].get("city")
+        if city is not None:
+            city = str(city).strip() or None
+    return PatientMatch(
+        patient_id=patient_id,
+        full_name=full_name,
+        dob=str(created.get("birthDate") or payload.date_of_birth),
+        sex=str(created.get("gender") or payload.birth_sex).strip().title(),
+        city=city,
+    )
 
 
 def _fhir_patient_ref(patient_id_str: str) -> str | None:

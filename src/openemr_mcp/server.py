@@ -1,7 +1,7 @@
 """
 OpenEMR MCP Server — Model Context Protocol server for OpenEMR.
 
-Registers 17 tools: patient search, appointments, medications, drug interactions,
+Registers 18 tools: patient search/create, appointments, medications, drug interactions,
 provider search, FDA adverse events, FDA drug labels, symptom lookup, drug safety
 flag CRUD, lab trends, vital trends, questionnaire trends, health trajectory,
 and visit prep.
@@ -46,6 +46,24 @@ _TOOLS = [
                 "query": {"type": "string", "description": "Patient name or partial name to search for"},
             },
             "required": ["query"],
+        },
+    ),
+    types.Tool(
+        name="openemr_patient_create",
+        description="Create a new OpenEMR patient using the required demographic fields.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "first_name": {"type": "string", "description": "Patient first name"},
+                "last_name": {"type": "string", "description": "Patient last name"},
+                "date_of_birth": {"type": "string", "description": "Birth date in YYYY-MM-DD format"},
+                "birth_sex": {
+                    "type": "string",
+                    "description": "Birth sex",
+                    "enum": ["Male", "Female", "Other", "Unknown"],
+                },
+            },
+            "required": ["first_name", "last_name", "date_of_birth", "birth_sex"],
         },
     ),
     types.Tool(
@@ -345,6 +363,16 @@ def _dispatch(name: str, args: dict) -> Any:
         from openemr_mcp.tools.patient import run_patient_search
 
         return run_patient_search(args["query"])
+
+    if name == "openemr_patient_create":
+        from openemr_mcp.tools.patient import run_create_patient
+
+        return run_create_patient(
+            first_name=args["first_name"],
+            last_name=args["last_name"],
+            date_of_birth=args["date_of_birth"],
+            birth_sex=args["birth_sex"],
+        )
 
     if name == "openemr_appointment_list":
         from openemr_mcp.tools.appointments import run_appointment_list
