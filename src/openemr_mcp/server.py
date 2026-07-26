@@ -364,7 +364,10 @@ def _invoke_tool(name: str, args: dict) -> Any:
     try:
         result = _dispatch(name, args)
         elapsed_ms = (time.perf_counter() - t0) * 1000
-        _log.info("tool=%s status=ok latency_ms=%.1f", name, elapsed_ms)
+        if isinstance(result, list):
+            _log.info("tool=%s status=ok latency_ms=%.1f result_count=%d", name, elapsed_ms, len(result))
+        else:
+            _log.info("tool=%s status=ok latency_ms=%.1f", name, elapsed_ms)
         return result
     except Exception as exc:
         elapsed_ms = (time.perf_counter() - t0) * 1000

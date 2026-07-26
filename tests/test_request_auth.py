@@ -12,7 +12,7 @@ from starlette.routing import Route
 
 from openemr_mcp.auth import OAuth2TokenManager, OpenEMROAuthError
 from openemr_mcp.config import settings
-from openemr_mcp.http_server import RequestAuthMiddleware
+from openemr_mcp.http_server import RequestAuthMiddleware, build_http_server
 from openemr_mcp.repositories._errors import ToolError
 from openemr_mcp.request_auth import (
     RequestAuthContext,
@@ -128,6 +128,34 @@ def test_http_middleware_rejects_expired_local_jwt(auth_settings, monkeypatch):
 
     assert response.status_code == 401
     assert "expired" in response.json()["error"]
+
+
+def test_http_patient_tools_publish_concrete_output_schemas():
+    mcp = build_http_server("127.0.0.1", 8305, "/mcp")
+    tools = mcp._tool_manager._tools
+
+    search_schema = tools["openemr_patient_search"].output_schema
+    assert search_schema is not None
+    assert search_schema["properties"]["result"]["items"]["$ref"] == "#/$defs/PatientMatch"
+    search_patient = search_schema["$defs"]["PatientMatch"]
+    assert search_patient["type"] == "object"
+    assert search_patient["properties"]["patient_id"]["type"] == "string"
+    assert search_patient["properties"]["full_name"]["type"] == "string"
+
+    list_schema = tools["openemr_patient_list"].output_schema
+    assert list_schema is not None
+    assert list_schema["properties"]["result"]["items"]["$ref"] == "#/$defs/PatientMatch"
+    list_patient = list_schema["$defs"]["PatientMatch"]
+    assert list_patient["type"] == "object"
+    assert list_patient["properties"]["patient_id"]["type"] == "string"
+    assert list_patient["properties"]["full_name"]["type"] == "string"
+
+    create_schema = tools["openemr_patient_create"].output_schema
+    assert create_schema is not None
+    created_patient = create_schema
+    assert created_patient["type"] == "object"
+    assert created_patient["properties"]["patient_id"]["type"] == "string"
+    assert created_patient["properties"]["full_name"]["type"] == "string"
 
 
 def test_request_token_is_forwarded_to_openemr_headers(auth_settings):

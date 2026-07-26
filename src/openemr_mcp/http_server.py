@@ -18,6 +18,7 @@ from openemr_mcp.request_auth import (
     reset_request_auth_context,
     set_request_auth_context,
 )
+from openemr_mcp.schemas import PatientMatch
 from openemr_mcp.server import _TOOLS, _invoke_tool
 
 _log = logging.getLogger("openemr_mcp")
@@ -92,7 +93,7 @@ def build_http_server(host: str, port: int, path: str) -> FastMCP:
         name="openemr_patient_search",
         description=_tool_description("openemr_patient_search"),
     )
-    def openemr_patient_search(query: str) -> Any:
+    def openemr_patient_search(query: str) -> list[PatientMatch]:
         return _invoke_tool("openemr_patient_search", {"query": query})
 
     @mcp.tool(
@@ -104,7 +105,7 @@ def build_http_server(host: str, port: int, path: str) -> FastMCP:
         last_name: str,
         date_of_birth: str,
         birth_sex: str,
-    ) -> Any:
+    ) -> PatientMatch:
         return _invoke_tool(
             "openemr_patient_create",
             {
@@ -119,7 +120,7 @@ def build_http_server(host: str, port: int, path: str) -> FastMCP:
         name="openemr_patient_list",
         description=_tool_description("openemr_patient_list"),
     )
-    def openemr_patient_list(limit: int = 50) -> Any:
+    def openemr_patient_list(limit: int = 50) -> list[PatientMatch]:
         return _invoke_tool("openemr_patient_list", {"limit": limit})
 
     @mcp.tool(
