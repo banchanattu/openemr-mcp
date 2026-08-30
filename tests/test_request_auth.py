@@ -118,6 +118,31 @@ def test_http_middleware_decodes_claims_even_when_local_validation_disabled(auth
     assert response.json()["user_id"] == "alice"
 
 
+def test_http_middleware_preserves_request_body_for_downstream(auth_settings):
+    captured = {}
+
+    async def endpoint(request):
+        captured["payload"] = await request.json()
+        return JSONResponse({"ok": True})
+
+    app = Starlette(routes=[Route("/mcp", endpoint, methods=["POST"])])
+    app.add_middleware(RequestAuthMiddleware)
+
+    async def _run():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            return await client.post(
+                "/mcp",
+                json={"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "openemr_appointment_create"}},
+            )
+
+    response = anyio.run(_run)
+
+    assert response.status_code == 200
+    assert captured["payload"]["method"] == "tools/call"
+    assert captured["payload"]["params"]["name"] == "openemr_appointment_create"
+
+
 def test_http_middleware_rejects_expired_local_jwt(auth_settings, monkeypatch):
     monkeypatch.setattr(settings, "openemr_require_request_auth", True)
     monkeypatch.setattr(settings, "openemr_validate_request_token_locally", True)

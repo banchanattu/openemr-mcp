@@ -1,6 +1,6 @@
 """All Pydantic schemas for openemr-mcp tools."""
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -36,6 +36,31 @@ class Appointment(BaseModel):
     reason: str | None = None
     provider_id: str | None = None
     provider_name: str | None = None
+
+
+class AppointmentCreate(BaseModel):
+    patient_id: str = Field(..., min_length=1, max_length=100)
+    category_id: str = Field(default="5", min_length=1, max_length=100)
+    title: str = Field(..., min_length=1, max_length=200)
+    duration: str = Field(default="900", min_length=1, max_length=100)
+    comments: str = Field(..., min_length=1, max_length=1000)
+    appointment_status: str = Field(default="^", min_length=1, max_length=50)
+    event_date: str = Field(..., min_length=10, max_length=10)
+    start_time: str = Field(..., min_length=5, max_length=8)
+    facility_id: str = Field(default="9", min_length=1, max_length=100)
+    billing_location_id: str = Field(default="10", min_length=1, max_length=100)
+    provider_id: str | None = Field(default=None, min_length=1, max_length=100)
+
+
+class AppointmentCreateResult(BaseModel):
+    appointment_id: str | None = None
+    patient_id: str
+    status: str
+    start_time: str | None = None
+    reason: str | None = None
+    provider_id: str | None = None
+    message: str | None = None
+    raw_data: dict[str, Any] | None = None
 
 
 # ---------------------------------------------------------------------------

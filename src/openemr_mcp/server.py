@@ -1,7 +1,7 @@
 """
 OpenEMR MCP Server — Model Context Protocol server for OpenEMR.
 
-Registers 19 tools: patient search/list/create, appointments, medications, drug interactions,
+Registers 20 tools: patient search/list/create, appointment list/create, medications, drug interactions,
 provider search, FDA adverse events, FDA drug labels, symptom lookup, drug safety
 flag CRUD, lab trends, vital trends, questionnaire trends, health trajectory,
 and visit prep.
@@ -23,7 +23,9 @@ from typing import Any
 import mcp.types as types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from openemr_mcp import config as _config  # Load .env defaults before parsing transport options.
+
+# Load .env defaults before parsing transport options.
+from openemr_mcp import config as _config
 
 _ = _config
 _log = logging.getLogger("openemr_mcp")
@@ -89,6 +91,49 @@ _TOOLS = [
                 "patient_id": {"type": "string", "description": "OpenEMR patient ID (e.g., 'p001')"},
             },
             "required": ["patient_id"],
+        },
+    ),
+    types.Tool(
+        name="openemr_appointment_create",
+        description="Create a new appointment for an existing patient.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "patient_id": {"type": "string", "description": "OpenEMR patient ID (e.g., 'p001')"},
+                "category_id": {
+                    "type": "string",
+                    "description": "OpenEMR appointment category ID",
+                    "default": "5",
+                },
+                "title": {"type": "string", "description": "Appointment title"},
+                "duration": {
+                    "type": "string",
+                    "description": "Appointment duration in seconds",
+                    "default": "900",
+                },
+                "comments": {"type": "string", "description": "Comments for the appointment"},
+                "appointment_status": {
+                    "type": "string",
+                    "description": "Appointment status code. '^' is OpenEMR's pending status.",
+                    "default": "^",
+                },
+                "event_date": {"type": "string", "description": "Appointment date in YYYY-MM-DD format"},
+                "start_time": {"type": "string", "description": "Appointment time in HH:MM or HH:MM:SS format"},
+                "facility_id": {"type": "string", "description": "OpenEMR facility ID", "default": "9"},
+                "billing_location_id": {
+                    "type": "string",
+                    "description": "OpenEMR billing location ID",
+                    "default": "10",
+                },
+                "provider_id": {"type": "string", "description": "OpenEMR provider ID (optional)"},
+            },
+            "required": [
+                "patient_id",
+                "title",
+                "comments",
+                "event_date",
+                "start_time",
+            ],
         },
     ),
     types.Tool(
@@ -400,6 +445,23 @@ def _dispatch(name: str, args: dict) -> Any:
         from openemr_mcp.tools.appointments import run_appointment_list
 
         return run_appointment_list(args["patient_id"])
+
+    if name == "openemr_appointment_create":
+        from openemr_mcp.tools.appointments import run_create_appointment
+
+        return run_create_appointment(
+            patient_id=args["patient_id"],
+            title=args["title"],
+            comments=args["comments"],
+            event_date=args["event_date"],
+            start_time=args["start_time"],
+            category_id=args.get("category_id", "5"),
+            duration=args.get("duration", "900"),
+            appointment_status=args.get("appointment_status", "^"),
+            facility_id=args.get("facility_id", "9"),
+            billing_location_id=args.get("billing_location_id", "10"),
+            provider_id=args.get("provider_id"),
+        )
 
     if name == "openemr_medication_list":
         from openemr_mcp.tools.medications import run_medication_list

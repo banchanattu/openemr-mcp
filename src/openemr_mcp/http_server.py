@@ -1,5 +1,6 @@
 """FastMCP-based Streamable HTTP transport for openemr-mcp."""
 
+import json
 import logging
 from typing import Any
 
@@ -18,7 +19,7 @@ from openemr_mcp.request_auth import (
     reset_request_auth_context,
     set_request_auth_context,
 )
-from openemr_mcp.schemas import PatientMatch
+from openemr_mcp.schemas import AppointmentCreateResult, PatientMatch
 from openemr_mcp.server import _TOOLS, _invoke_tool
 
 _log = logging.getLogger("openemr_mcp")
@@ -34,6 +35,8 @@ class RequestAuthMiddleware:
             return
 
         headers = Headers(scope=scope)
+        request_body, replay_receive = await _capture_request_body(receive)
+        _log_mcp_http_request(scope, headers, request_body)
         auth_header = headers.get("authorization")
         refresh_token = headers.get(settings.openemr_refresh_token_header)
         token = None
@@ -41,30 +44,77 @@ class RequestAuthMiddleware:
             token = parse_bearer_token(auth_header)
         except ValueError as exc:
             response = JSONResponse({"error": str(exc)}, status_code=401)
-            await response(scope, receive, send)
+            await response(scope, replay_receive, send)
             return
 
         if not token and _request_auth_required():
             response = JSONResponse({"error": "Missing bearer token"}, status_code=401)
-            await response(scope, receive, send)
+            await response(scope, replay_receive, send)
             return
 
         claims = decode_jwt_claims(token) if token else None
         if token and settings.openemr_validate_request_token_locally and claims is None:
             response = JSONResponse({"error": "Bearer token is not a valid JWT"}, status_code=401)
-            await response(scope, receive, send)
+            await response(scope, replay_receive, send)
             return
         if claims is not None and not claims_are_active(claims):
             response = JSONResponse({"error": "Bearer token is expired or not yet active"}, status_code=401)
-            await response(scope, receive, send)
+            await response(scope, replay_receive, send)
             return
 
         context = RequestAuthContext(access_token=token, refresh_token=refresh_token, claims=claims) if token else None
         context_token = set_request_auth_context(context)
         try:
-            await self.app(scope, receive, send)
+            await self.app(scope, replay_receive, send)
         finally:
             reset_request_auth_context(context_token)
+
+
+async def _capture_request_body(receive: Receive) -> tuple[bytes, Receive]:
+    messages: list[dict[str, Any]] = []
+    body_parts: list[bytes] = []
+
+    while True:
+        message = await receive()
+        messages.append(message)
+        if message["type"] != "http.request":
+            break
+        body = message.get("body", b"")
+        if body:
+            body_parts.append(body)
+        if not message.get("more_body", False):
+            break
+
+    async def _replay_receive() -> dict[str, Any]:
+        if messages:
+            return messages.pop(0)
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    return b"".join(body_parts), _replay_receive
+
+
+def _log_mcp_http_request(scope: Scope, headers: Headers, request_body: bytes) -> None:
+    method_name = None
+    tool_name = None
+    if request_body:
+        try:
+            payload = json.loads(request_body)
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict):
+            method_name = payload.get("method")
+            params = payload.get("params")
+            if isinstance(params, dict):
+                tool_name = params.get("name")
+
+    _log.info(
+        "mcp_http method=%s path=%s has_auth=%s rpc_method=%s tool=%s",
+        scope.get("method"),
+        scope.get("path"),
+        bool(headers.get("authorization")),
+        method_name,
+        tool_name,
+    )
 
 
 def _request_auth_required() -> bool:
@@ -129,6 +179,40 @@ def build_http_server(host: str, port: int, path: str) -> FastMCP:
     )
     def openemr_appointment_list(patient_id: str) -> Any:
         return _invoke_tool("openemr_appointment_list", {"patient_id": patient_id})
+
+    @mcp.tool(
+        name="openemr_appointment_create",
+        description=_tool_description("openemr_appointment_create"),
+    )
+    def openemr_appointment_create(
+        patient_id: str,
+        title: str,
+        comments: str,
+        event_date: str,
+        start_time: str,
+        category_id: str = "5",
+        duration: str = "900",
+        appointment_status: str = "^",
+        facility_id: str = "9",
+        billing_location_id: str = "10",
+        provider_id: str | None = None,
+    ) -> AppointmentCreateResult:
+        return _invoke_tool(
+            "openemr_appointment_create",
+            {
+                "patient_id": patient_id,
+                "title": title,
+                "comments": comments,
+                "event_date": event_date,
+                "start_time": start_time,
+                "category_id": category_id,
+                "duration": duration,
+                "appointment_status": appointment_status,
+                "facility_id": facility_id,
+                "billing_location_id": billing_location_id,
+                "provider_id": provider_id,
+            },
+        )
 
     @mcp.tool(
         name="openemr_medication_list",

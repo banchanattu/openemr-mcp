@@ -14,7 +14,7 @@ from openemr_mcp.request_auth import get_request_auth_context
 OAUTH_SCOPES = (
     "openid offline_access api:oemr api:fhir "
     "user/Patient.rs user/MedicationRequest.rs user/patient.crus user/prescription.rs "
-    "user/Practitioner.rs user/Appointment.rs user/appointment.crus"
+    "user/Practitioner.rs user/Appointment.rs user/appointment.cruds"
 )
 CACHE_BUFFER_SECONDS = 60
 

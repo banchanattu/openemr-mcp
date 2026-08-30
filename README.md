@@ -411,7 +411,7 @@ OPENEMR_DATA_SOURCE=mock openemr-mcp
 
 ```
 src/openemr_mcp/
-├── server.py              # MCP server — registers all 19 tools
+├── server.py              # MCP server — registers all 20 tools
 ├── config.py              # Pydantic-settings configuration
 ├── schemas.py             # All Pydantic response schemas
 ├── auth.py                # OpenEMR OAuth2 token manager

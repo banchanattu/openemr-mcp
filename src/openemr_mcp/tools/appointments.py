@@ -1,7 +1,10 @@
-"""Appointment list tool."""
+"""Appointment tools."""
+
+from datetime import date, time
 
 from openemr_mcp.data_source import get_effective_data_source, get_http_client
-from openemr_mcp.schemas import Appointment
+from openemr_mcp.repositories._errors import ToolError
+from openemr_mcp.schemas import Appointment, AppointmentCreate, AppointmentCreateResult
 
 MOCK_APPOINTMENTS: list[Appointment] = [
     Appointment(
@@ -151,6 +154,50 @@ MOCK_APPOINTMENTS: list[Appointment] = [
 ]
 
 
+def _normalize_required(value: str, field_name: str) -> str:
+    cleaned = (value or "").strip()
+    if not cleaned:
+        raise ToolError(f"{field_name} is required.")
+    return cleaned
+
+
+def _normalize_event_date(value: str) -> str:
+    cleaned = _normalize_required(value, "event_date")
+    try:
+        date.fromisoformat(cleaned)
+    except ValueError as exc:
+        raise ToolError("event_date must be in YYYY-MM-DD format.") from exc
+    return cleaned
+
+
+def _normalize_start_time(value: str) -> str:
+    cleaned = _normalize_required(value, "start_time")
+    try:
+        parsed = time.fromisoformat(cleaned)
+    except ValueError as exc:
+        raise ToolError("start_time must be in HH:MM or HH:MM:SS format.") from exc
+    if len(cleaned) == 5:
+        return parsed.strftime("%H:%M")
+    if len(cleaned) == 8:
+        return parsed.strftime("%H:%M:%S")
+    raise ToolError("start_time must be in HH:MM or HH:MM:SS format.")
+
+
+def _normalize_patient_id(value: str) -> str:
+    return _normalize_required(value, "patient_id")
+
+
+def _next_mock_appointment_id() -> str:
+    max_aid = 0
+    for appointment in MOCK_APPOINTMENTS:
+        raw = appointment.appointment_id.lstrip("aA")
+        try:
+            max_aid = max(max_aid, int(raw))
+        except ValueError:
+            continue
+    return f"a{max_aid + 1}"
+
+
 def run_appointment_list(patient_id: str) -> list[Appointment]:
     pid = (patient_id or "").strip()
     if not pid:
@@ -161,3 +208,55 @@ def run_appointment_list(patient_id: str) -> list[Appointment]:
 
         return get_appointments_api(pid, get_http_client())
     return [a for a in MOCK_APPOINTMENTS if a.patient_id == pid]
+
+
+def run_create_appointment(
+    patient_id: str,
+    title: str,
+    comments: str,
+    event_date: str,
+    start_time: str,
+    category_id: str = "5",
+    duration: str = "900",
+    appointment_status: str = "^",
+    facility_id: str = "9",
+    billing_location_id: str = "10",
+    provider_id: str | None = None,
+) -> AppointmentCreateResult:
+    payload = AppointmentCreate(
+        patient_id=_normalize_patient_id(patient_id),
+        category_id=_normalize_required(category_id, "category_id"),
+        title=_normalize_required(title, "title"),
+        duration=_normalize_required(duration, "duration"),
+        comments=_normalize_required(comments, "comments"),
+        appointment_status=_normalize_required(appointment_status, "appointment_status"),
+        event_date=_normalize_event_date(event_date),
+        start_time=_normalize_start_time(start_time),
+        facility_id=_normalize_required(facility_id, "facility_id"),
+        billing_location_id=_normalize_required(billing_location_id, "billing_location_id"),
+        provider_id=(provider_id or "").strip() or None,
+    )
+    ds = get_effective_data_source()
+    if ds == "api":
+        from openemr_mcp.repositories.fhir_api import create_appointment_api
+
+        return create_appointment_api(payload, get_http_client())
+
+    created = Appointment(
+        appointment_id=_next_mock_appointment_id(),
+        patient_id=payload.patient_id,
+        start_time=f"{payload.event_date}T{payload.start_time}",
+        reason=payload.title,
+        provider_id=payload.provider_id,
+        provider_name=None,
+    )
+    MOCK_APPOINTMENTS.append(created)
+    return AppointmentCreateResult(
+        appointment_id=created.appointment_id,
+        patient_id=created.patient_id,
+        status="created",
+        start_time=created.start_time,
+        reason=created.reason,
+        provider_id=created.provider_id,
+        raw_data=None,
+    )

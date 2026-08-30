@@ -67,8 +67,6 @@ def get_http_client():
 
         def get_fhir(self, resource_path: str, params: dict | None = None) -> dict:
             """GET /apis/default/fhir/{resource_path}"""
-            import httpx
-
             base = settings.openemr_api_base_url.rstrip("/")
             url = f"{base}/fhir/{resource_path}"
             return self.get_fhir_url(url, params=params)
@@ -119,14 +117,43 @@ def get_http_client():
                 raise ToolError(f"FHIR API unreachable: {exc}") from exc
 
         def get_rest(self, path: str, params: dict | None = None) -> dict:
-            """GET /apis/default/{path}"""
+            """GET /apis/default/api/{path}"""
             import httpx
 
             base = settings.openemr_api_base_url.rstrip("/")
-            url = f"{base}/{path}"
+            resource_path = path.lstrip("/")
+            if not resource_path.startswith("api/"):
+                resource_path = f"api/{resource_path}"
+            url = f"{base}/{resource_path}"
             headers = self._get_headers()
             try:
                 r = httpx.get(url, params=params, headers=headers, timeout=15.0)
+                r.raise_for_status()
+                return r.json()
+            except httpx.HTTPStatusError as exc:
+                from openemr_mcp.repositories._errors import ToolError
+
+                hint = _auth_mode_hint(exc.response.status_code)
+                detail = _safe_http_error_detail(exc.response)
+                raise ToolError(f"REST API error: HTTP {exc.response.status_code}{hint}{detail}") from exc
+            except Exception as exc:
+                from openemr_mcp.repositories._errors import ToolError
+
+                raise ToolError(f"REST API error: {exc}") from exc
+
+        def post_rest(self, path: str, json_body: dict) -> dict:
+            """POST /apis/default/api/{path}"""
+            import httpx
+
+            base = settings.openemr_api_base_url.rstrip("/")
+            resource_path = path.lstrip("/")
+            if not resource_path.startswith("api/"):
+                resource_path = f"api/{resource_path}"
+            url = f"{base}/{resource_path}"
+            headers = self._get_headers()
+            headers["Content-Type"] = "application/json"
+            try:
+                r = httpx.post(url, json=json_body, headers=headers, timeout=15.0)
                 r.raise_for_status()
                 return r.json()
             except httpx.HTTPStatusError as exc:
