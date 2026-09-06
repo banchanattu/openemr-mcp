@@ -6,11 +6,25 @@ from typing import Any
 
 import uvicorn
 from mcp.server.fastmcp import FastMCP
+from starlette.applications import Starlette
 from starlette.datastructures import Headers
-from starlette.responses import JSONResponse
+from starlette.requests import Request
+from starlette.responses import JSONResponse, RedirectResponse
+from starlette.routing import Mount, Route
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from openemr_mcp.config import settings
+from openemr_mcp.discovery import (
+    AI_CATALOG_CONTENT_TYPE,
+    WELL_KNOWN_HEADERS,
+    build_ai_catalog,
+    build_mcp_catalog,
+    build_mcp_server_card,
+    build_oauth_protected_resource,
+    request_auth_is_required,
+    well_known_json_response,
+    well_known_options_response,
+)
 from openemr_mcp.request_auth import (
     RequestAuthContext,
     claims_are_active,
@@ -118,7 +132,7 @@ def _log_mcp_http_request(scope: Scope, headers: Headers, request_body: bytes) -
 
 
 def _request_auth_required() -> bool:
-    return settings.openemr_auth_mode == "request_token" or settings.openemr_require_request_auth
+    return request_auth_is_required()
 
 
 def _tool_description(name: str) -> str:
@@ -415,10 +429,66 @@ def build_http_server(host: str, port: int, path: str) -> FastMCP:
 
 
 def build_streamable_http_app(host: str, port: int, path: str):
+    mcp_app, mcp = build_authenticated_mcp_app(host=host, port=port, path=path)
+    app = build_root_http_app(mcp_app=mcp_app, mcp_path=path)
+    return app, mcp
+
+
+def build_authenticated_mcp_app(host: str, port: int, path: str):
     mcp = build_http_server(host=host, port=port, path=path)
     app = mcp.streamable_http_app()
     app.add_middleware(RequestAuthMiddleware)
     return app, mcp
+
+
+def build_root_http_app(mcp_app: ASGIApp, mcp_path: str) -> Starlette:
+    from openemr_mcp import __version__
+
+    async def well_known_mcp(request: Request):
+        if request.method == "OPTIONS":
+            return well_known_options_response()
+        payload = build_mcp_server_card(request, mcp_path=mcp_path, version=__version__)
+        return well_known_json_response(payload)
+
+    async def ai_catalog(request: Request):
+        if request.method == "OPTIONS":
+            return well_known_options_response()
+        return well_known_json_response(build_ai_catalog(request), media_type=AI_CATALOG_CONTENT_TYPE)
+
+    async def mcp_catalog(request: Request):
+        if request.method == "OPTIONS":
+            return well_known_options_response()
+        return well_known_json_response(build_mcp_catalog(request))
+
+    async def legacy_server_card(request: Request):
+        if request.method == "OPTIONS":
+            return well_known_options_response()
+        return RedirectResponse(
+            url="/.well-known/mcp.json",
+            status_code=301,
+            headers=WELL_KNOWN_HEADERS,
+        )
+
+    async def oauth_protected_resource(request: Request):
+        if request.method == "OPTIONS":
+            return well_known_options_response()
+        payload = build_oauth_protected_resource(request, mcp_path=mcp_path)
+        return well_known_json_response(payload)
+
+    return Starlette(
+        routes=[
+            Route("/.well-known/ai-catalog.json", ai_catalog, methods=["GET", "OPTIONS"]),
+            Route("/.well-known/mcp.json", well_known_mcp, methods=["GET", "OPTIONS"]),
+            Route("/.well-known/mcp/catalog.json", mcp_catalog, methods=["GET", "OPTIONS"]),
+            Route("/.well-known/mcp/server-card.json", legacy_server_card, methods=["GET", "OPTIONS"]),
+            Route(
+                "/.well-known/oauth-protected-resource",
+                oauth_protected_resource,
+                methods=["GET", "OPTIONS"],
+            ),
+            Mount(mcp_path, app=mcp_app),
+        ]
+    )
 
 
 def run_streamable_http(host: str, port: int, path: str) -> None:

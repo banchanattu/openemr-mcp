@@ -81,6 +81,22 @@ Quick smoke test from another terminal:
 uv run python examples/smoke_test_http.py --url http://127.0.0.1:8305/mcp
 ```
 
+### ARD Discovery
+
+When running the streamable HTTP transport, the server also exposes discovery metadata for Agent-Ready / Agent-Direct clients:
+
+- `/.well-known/ai-catalog.json`
+- `/.well-known/mcp/catalog.json`
+- `/.well-known/mcp.json`
+- `/.well-known/mcp/server-card.json`
+- `/.well-known/oauth-protected-resource`
+
+Set `OPENEMR_MCP_PUBLIC_BASE_URL` in deployed environments so these endpoints publish the external HTTPS URL clients should use instead of an internal bind address.
+
+The server card advertises `streamable-http` by default. SSE is not advertised unless `OPENEMR_MCP_ENABLE_SSE_CARD_ENTRY=true`, and that should only be enabled if you have added a real SSE transport at the advertised path.
+
+The `authentication` block in the server card is included only when incoming MCP bearer auth is actually required by runtime config, such as `OPENEMR_REQUIRE_REQUEST_AUTH=true` or `OPENEMR_AUTH_MODE=request_token`.
+
 ## Local vs Docker Config
 
 This repo uses different env files for local and Docker startup:
@@ -228,6 +244,8 @@ OPENEMR_MCP_TRANSPORT=stdio     # stdio | streamable-http
 OPENEMR_MCP_HOST=127.0.0.1
 OPENEMR_MCP_PORT=8305
 OPENEMR_MCP_PATH=/mcp
+OPENEMR_MCP_PUBLIC_BASE_URL=https://mcp.example.com
+OPENEMR_MCP_AUTH_SCOPES=openid,fhirUser,patient/*.read
 
 # FHIR API (when OPENEMR_DATA_SOURCE=api)
 OPENEMR_API_BASE_URL=https://your-openemr/apis/default

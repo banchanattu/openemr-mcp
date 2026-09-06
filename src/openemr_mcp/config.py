@@ -25,6 +25,21 @@ class Settings(BaseModel):
 
     # FHIR R4 API (used when OPENEMR_DATA_SOURCE=api)
     openemr_api_base_url: str | None = os.getenv("OPENEMR_API_BASE_URL")
+    openemr_mcp_public_base_url: str | None = os.getenv("OPENEMR_MCP_PUBLIC_BASE_URL")
+    openemr_mcp_server_name: str = os.getenv("OPENEMR_MCP_SERVER_NAME", "openemr-mcp-server")
+    openemr_mcp_server_title: str = os.getenv("OPENEMR_MCP_SERVER_TITLE", "OpenEMR Healthcare MCP Server")
+    openemr_mcp_server_description: str = os.getenv(
+        "OPENEMR_MCP_SERVER_DESCRIPTION",
+        "Provides secure Model Context Protocol access to OpenEMR EHR data, FHIR/REST primitives, patient lookup, and appointment scheduling.",
+    )
+    openemr_mcp_server_icon_url: str | None = os.getenv("OPENEMR_MCP_SERVER_ICON_URL")
+    openemr_mcp_vendor_name: str = os.getenv("OPENEMR_MCP_VENDOR_NAME", "OpenEMR Community / Internal Tech Team")
+    openemr_mcp_vendor_url: str | None = os.getenv("OPENEMR_MCP_VENDOR_URL")
+    openemr_mcp_authorization_server: str | None = os.getenv("OPENEMR_MCP_AUTHORIZATION_SERVER")
+    openemr_mcp_auth_scopes: str = os.getenv("OPENEMR_MCP_AUTH_SCOPES", "openid,fhirUser,patient/*.read")
+    openemr_mcp_enable_sse_card_entry: bool = (
+        os.getenv("OPENEMR_MCP_ENABLE_SSE_CARD_ENTRY", "false").lower() == "true"
+    )
     openemr_auth_mode: str = os.getenv("OPENEMR_AUTH_MODE", "auto")
     openemr_require_request_auth: bool = os.getenv("OPENEMR_REQUIRE_REQUEST_AUTH", "false").lower() == "true"
     openemr_refresh_token_header: str = os.getenv("OPENEMR_REFRESH_TOKEN_HEADER", "X-Refresh-Token")
