@@ -154,3 +154,43 @@ def test_mcp_endpoint_auth_boundary_is_unchanged(monkeypatch):
 
     assert response.status_code == 401
     assert response.json()["error"] == "Missing bearer token"
+
+
+def test_mcp_initialize_is_handled_at_configured_path(monkeypatch):
+    monkeypatch.setattr(settings, "openemr_auth_mode", "auto")
+    monkeypatch.setattr(settings, "openemr_require_request_auth", False)
+
+    app, _ = build_streamable_http_app("127.0.0.1", 8305, "/mcp")
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "probe", "version": "1.0"},
+        },
+    }
+
+    async def _run():
+        transport = httpx.ASGITransport(app=app)
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=transport,
+                base_url="http://127.0.0.1:8305",
+                follow_redirects=False,
+            ) as client:
+                return await client.post(
+                    "/mcp",
+                    headers={
+                        "Content-Type": "application/json",
+                        "Accept": "application/json, text/event-stream",
+                        "MCP-Protocol-Version": "2025-06-18",
+                    },
+                    json=payload,
+                )
+
+    response = anyio.run(_run)
+
+    assert response.status_code == 200
+    assert response.json()["result"]["protocolVersion"] == "2025-06-18"

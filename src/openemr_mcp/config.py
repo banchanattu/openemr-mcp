@@ -47,7 +47,7 @@ class Settings(BaseModel):
         os.getenv("OPENEMR_ENABLE_REQUEST_TOKEN_REFRESH", "false").lower() == "true"
     )
     openemr_validate_request_token_locally: bool = (
-        os.getenv("OPENEMR_VALIDATE_REQUEST_TOKEN_LOCALLY", "true").lower() == "true"
+        os.getenv("OPENEMR_VALIDATE_REQUEST_TOKEN_LOCALLY", "false").lower() == "true"
     )
     openemr_log_outbound_bearer_token: bool = (
         os.getenv("OPENEMR_LOG_OUTBOUND_BEARER_TOKEN", "false").lower() == "true"

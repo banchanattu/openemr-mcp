@@ -39,8 +39,7 @@ for mat given below.
   "email": "aaa@aaa.com"
 }
 
-All the tool call that is going to be made to the openemr server will be
-using the toke provided in the original_jti field.
-
-Can you add a supporting funcrtion to extract this token and use it for the 
-openemr server call?
+The bearer token supplied to the MCP server is already issued by OpenEMR.
+All tool calls to OpenEMR must forward that same bearer token unchanged.
+The MCP server must not extract or substitute a token from `original_jti`, and
+must not perform an additional token exchange for the request.

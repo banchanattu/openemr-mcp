@@ -16,7 +16,6 @@ from openemr_mcp.http_server import RequestAuthMiddleware, build_http_server
 from openemr_mcp.repositories._errors import ToolError
 from openemr_mcp.request_auth import (
     RequestAuthContext,
-    extract_original_jti_token,
     get_request_auth_context,
     reset_request_auth_context,
     set_request_auth_context,
@@ -183,11 +182,19 @@ def test_http_patient_tools_publish_concrete_output_schemas():
     assert created_patient["properties"]["full_name"]["type"] == "string"
 
 
+def test_http_server_uses_bind_host_when_configuring_transport_security():
+    mcp = build_http_server("0.0.0.0", 8305, "/mcp")
+
+    assert mcp.settings.host == "0.0.0.0"
+    assert mcp.settings.port == 8305
+    assert mcp.settings.transport_security is None
+
+
 def test_request_token_is_forwarded_to_openemr_headers(auth_settings):
     context_token = set_request_auth_context(
         RequestAuthContext(
             access_token="outer-mcp-token",
-            claims={"original_jti": "trusted-openemr-token"},
+            claims={"original_jti": "ignored-token"},
         )
     )
     try:
@@ -195,11 +202,11 @@ def test_request_token_is_forwarded_to_openemr_headers(auth_settings):
     finally:
         reset_request_auth_context(context_token)
 
-    assert headers["Authorization"] == "Bearer trusted-openemr-token"
+    assert headers["Authorization"] == "Bearer outer-mcp-token"
     assert headers["Accept"] == "application/json"
 
 
-def test_request_token_is_forwarded_from_jwt_claims_without_local_validation(auth_settings, monkeypatch):
+def test_request_token_is_forwarded_unchanged_without_local_validation(auth_settings, monkeypatch):
     monkeypatch.setattr(settings, "openemr_require_request_auth", True)
     monkeypatch.setattr(settings, "openemr_validate_request_token_locally", False)
     app = _build_test_app()
@@ -219,10 +226,10 @@ def test_request_token_is_forwarded_from_jwt_claims_without_local_validation(aut
     finally:
         reset_request_auth_context(context_token)
 
-    assert headers["Authorization"] == "Bearer trusted-openemr-token"
+    assert headers["Authorization"] == f"Bearer {token}"
 
 
-def test_request_token_falls_back_to_bearer_when_original_jti_missing(auth_settings):
+def test_request_token_is_forwarded_when_claims_have_no_special_token(auth_settings):
     context_token = set_request_auth_context(RequestAuthContext(access_token="outer-mcp-token", claims={"sub": "user-1"}))
     try:
         headers = __import__("openemr_mcp.data_source", fromlist=["get_http_client"]).get_http_client()._get_headers()
@@ -230,12 +237,6 @@ def test_request_token_falls_back_to_bearer_when_original_jti_missing(auth_setti
         reset_request_auth_context(context_token)
 
     assert headers["Authorization"] == "Bearer outer-mcp-token"
-
-
-def test_extract_original_jti_token_returns_none_for_empty_values():
-    assert extract_original_jti_token(None) is None
-    assert extract_original_jti_token({}) is None
-    assert extract_original_jti_token({"original_jti": "   "}) is None
 
 
 def test_request_token_mode_fails_closed_without_context(auth_settings, monkeypatch):
@@ -295,4 +296,4 @@ def test_fhir_401_reports_forwarded_request_token(auth_settings, monkeypatch):
     finally:
         reset_request_auth_context(context_token)
 
-    assert captured.headers["Authorization"] == "Bearer trusted-openemr-token"
+    assert captured.headers["Authorization"] == "Bearer outer-mcp-token"

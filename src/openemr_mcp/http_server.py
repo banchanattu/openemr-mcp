@@ -2,6 +2,7 @@
 
 import json
 import logging
+import time
 from typing import Any
 
 import uvicorn
@@ -57,21 +58,39 @@ class RequestAuthMiddleware:
         try:
             token = parse_bearer_token(auth_header)
         except ValueError as exc:
+            _log_auth_rejection(scope, "malformed_authorization", error=str(exc))
             response = JSONResponse({"error": str(exc)}, status_code=401)
             await response(scope, replay_receive, send)
             return
 
         if not token and _request_auth_required():
+            _log_auth_rejection(scope, "missing_bearer_token")
             response = JSONResponse({"error": "Missing bearer token"}, status_code=401)
             await response(scope, replay_receive, send)
             return
 
         claims = decode_jwt_claims(token) if token else None
         if token and settings.openemr_validate_request_token_locally and claims is None:
+            _log_auth_rejection(
+                scope,
+                "invalid_jwt_structure",
+                token_parts=len(token.split(".")),
+                local_validation=True,
+            )
             response = JSONResponse({"error": "Bearer token is not a valid JWT"}, status_code=401)
             await response(scope, replay_receive, send)
             return
         if claims is not None and not claims_are_active(claims):
+            _log_auth_rejection(
+                scope,
+                "inactive_jwt",
+                issuer=claims.get("iss"),
+                subject=claims.get("sub"),
+                issued_at=claims.get("iat"),
+                not_before=claims.get("nbf"),
+                expires_at=claims.get("exp"),
+                now=time.time(),
+            )
             response = JSONResponse({"error": "Bearer token is expired or not yet active"}, status_code=401)
             await response(scope, replay_receive, send)
             return
@@ -131,6 +150,17 @@ def _log_mcp_http_request(scope: Scope, headers: Headers, request_body: bytes) -
     )
 
 
+def _log_auth_rejection(scope: Scope, reason: str, **details: Any) -> None:
+    """Log why request auth rejected a request without exposing bearer tokens."""
+    _log.warning(
+        "mcp_auth_rejected method=%s path=%s reason=%s details=%s",
+        scope.get("method"),
+        scope.get("path"),
+        reason,
+        details,
+    )
+
+
 def _request_auth_required() -> bool:
     return request_auth_is_required()
 
@@ -146,11 +176,11 @@ def build_http_server(host: str, port: int, path: str) -> FastMCP:
     mcp = FastMCP(
         "openemr-mcp",
         instructions="OpenEMR MCP server exposing patient, medication, FDA, and clinical trajectory tools.",
+        host=host,
+        port=port,
         stateless_http=True,
         json_response=True,
     )
-    mcp.settings.host = host
-    mcp.settings.port = port
     mcp.settings.streamable_http_path = path
 
     @mcp.tool(
@@ -430,7 +460,14 @@ def build_http_server(host: str, port: int, path: str) -> FastMCP:
 
 def build_streamable_http_app(host: str, port: int, path: str):
     mcp_app, mcp = build_authenticated_mcp_app(host=host, port=port, path=path)
-    app = build_root_http_app(mcp_app=mcp_app, mcp_path=path)
+    # FastMCP's generated app owns the session-manager lifespan.  Because it is
+    # mounted below the discovery app, Starlette will not run that child
+    # lifespan automatically, so propagate it to the root application.
+    app = build_root_http_app(
+        mcp_app=mcp_app,
+        mcp_path=path,
+        lifespan=mcp_app.router.lifespan_context,
+    )
     return app, mcp
 
 
@@ -441,7 +478,11 @@ def build_authenticated_mcp_app(host: str, port: int, path: str):
     return app, mcp
 
 
-def build_root_http_app(mcp_app: ASGIApp, mcp_path: str) -> Starlette:
+def build_root_http_app(
+    mcp_app: ASGIApp,
+    mcp_path: str,
+    lifespan=None,
+) -> Starlette:
     from openemr_mcp import __version__
 
     async def well_known_mcp(request: Request):
@@ -476,6 +517,7 @@ def build_root_http_app(mcp_app: ASGIApp, mcp_path: str) -> Starlette:
         return well_known_json_response(payload)
 
     return Starlette(
+        lifespan=lifespan,
         routes=[
             Route("/.well-known/ai-catalog.json", ai_catalog, methods=["GET", "OPTIONS"]),
             Route("/.well-known/mcp.json", well_known_mcp, methods=["GET", "OPTIONS"]),
@@ -486,7 +528,10 @@ def build_root_http_app(mcp_app: ASGIApp, mcp_path: str) -> Starlette:
                 oauth_protected_resource,
                 methods=["GET", "OPTIONS"],
             ),
-            Mount(mcp_path, app=mcp_app),
+            # The FastMCP app already owns the absolute `mcp_path` route.
+            # Mount it at the wrapper root so the request is not transformed
+            # into `/mcp/mcp` and `/mcp` does not get slash-normalized.
+            Mount("/", app=mcp_app),
         ]
     )
 
