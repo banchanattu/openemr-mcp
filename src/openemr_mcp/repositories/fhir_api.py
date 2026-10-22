@@ -351,51 +351,83 @@ def get_medications_api(patient_id_str: str, http_client: Any) -> list[Medicatio
     return out
 
 
+def _appointment_from_fhir_resource(resource: dict[str, Any], patient_id: str) -> Appointment | None:
+    if resource.get("resourceType") != "Appointment":
+        return None
+
+    resource_id = str(resource.get("id") or "").strip()
+    if not resource_id:
+        return None
+
+    start_time = str(resource.get("start") or "").strip()
+    if not start_time:
+        period = resource.get("period")
+        if isinstance(period, dict):
+            start_time = str(period.get("start") or "").strip()
+
+    reason = str(resource.get("description") or "").strip() or None
+    if reason is None:
+        reason_codes = resource.get("reasonCode")
+        if isinstance(reason_codes, list) and reason_codes and isinstance(reason_codes[0], dict):
+            first_reason = reason_codes[0]
+            reason = str(first_reason.get("text") or "").strip() or None
+            if reason is None:
+                codings = first_reason.get("coding")
+                if isinstance(codings, list) and codings and isinstance(codings[0], dict):
+                    reason = str(codings[0].get("display") or codings[0].get("code") or "").strip() or None
+
+    provider_id = None
+    provider_name = None
+    participants = resource.get("participant")
+    if isinstance(participants, list):
+        for participant in participants:
+            if not isinstance(participant, dict):
+                continue
+            actor = participant.get("actor")
+            if not isinstance(actor, dict):
+                continue
+            reference = str(actor.get("reference") or "").strip()
+            if reference.startswith("Practitioner/"):
+                provider_raw = reference.split("/", 1)[1].strip()
+                provider_id = f"prov{provider_raw}" if provider_raw else None
+                provider_name = str(actor.get("display") or "").strip() or None
+                break
+
+    return Appointment(
+        appointment_id=f"a{resource_id}",
+        patient_id=patient_id,
+        start_time=start_time,
+        reason=reason,
+        provider_id=provider_id,
+        provider_name=provider_name,
+    )
+
+
 def get_appointments_api(patient_id_str: str, http_client: Any) -> list[Appointment]:
-    s = (patient_id_str or "").strip().lower()
-    if not s:
+    """List appointments through FHIR using the patient's FHIR resource ID.
+
+    Patient search results use a synthetic ``p`` prefix for compatibility with
+    the mock data. Remove that prefix before sending the FHIR search parameter.
+    Appointment creation remains on the standard REST endpoint and is handled
+    separately by ``create_appointment_api``.
+    """
+    patient_id = (patient_id_str or "").strip()
+    if not patient_id:
         return []
-    raw = s[1:] if s.startswith("p") else s
-    if not raw:
+    fhir_patient_id = patient_id[1:] if patient_id.lower().startswith("p") else patient_id
+    if not fhir_patient_id:
         return []
-    try:
-        data = http_client.get_rest(f"patient/{raw}/appointment")
-    except ToolError:
-        raise
-    items: Any = data
-    if isinstance(data, dict):
-        items = data.get("data") or data.get("appointments") or []
-    if not isinstance(items, list):
-        return []
-    out = []
-    for item in items:
-        if not isinstance(item, dict):
+
+    bundle = http_client.get_fhir("Appointment", params={"patient": fhir_patient_id})
+    entries = _bundle_entries(bundle)
+    out: list[Appointment] = []
+    for entry in entries:
+        resource = entry.get("resource")
+        if not isinstance(resource, dict):
             continue
-        appt_id = item.get("pc_eid") or item.get("id")
-        appt_pid = item.get("pc_pid") or item.get("patient_id") or raw
-        date_str = str(item.get("pc_eventDate") or item.get("date") or "").strip()
-        time_str = str(item.get("pc_startTime") or item.get("start_time") or "").strip()
-        if date_str and len(date_str) >= 10:
-            start_time = f"{date_str[:10]}T{time_str or '00:00:00'}"
-        else:
-            start_time = ""
-        reason = str(item.get("pc_title") or item.get("reason") or "").strip() or None
-        provider_aid = item.get("pc_aid") or item.get("provider_id")
-        provider_id = "prov" + str(provider_aid) if provider_aid else None
-        pf = str(item.get("provider_fname") or "").strip()
-        pl = str(item.get("provider_lname") or "").strip()
-        name_parts = [n for n in [pf, pl] if n]
-        provider_name = "Dr. " + " ".join(name_parts) if name_parts else None
-        out.append(
-            Appointment(
-                appointment_id="a" + str(appt_id) if appt_id else "",
-                patient_id="p" + str(appt_pid),
-                start_time=start_time,
-                reason=reason,
-                provider_id=provider_id,
-                provider_name=provider_name,
-            )
-        )
+        appointment = _appointment_from_fhir_resource(resource, patient_id)
+        if appointment is not None:
+            out.append(appointment)
     return out
 
 

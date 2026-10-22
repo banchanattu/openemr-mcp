@@ -299,38 +299,47 @@ def test_create_appointment_api_uses_rest_payload():
     assert result.provider_id == "prov1"
 
 
-def test_get_appointments_api_uses_patient_appointment_route_for_uuid():
+def test_get_appointments_api_uses_fhir_appointment_search_for_uuid():
     from openemr_mcp.repositories.fhir_api import get_appointments_api
 
     captured: dict = {}
 
     class FakeHttpClient:
-        def get_rest(self, path: str, params: dict | None = None) -> dict:
-            captured["path"] = path
+        def get_fhir(self, resource: str, params: dict | None = None) -> dict:
+            captured["resource"] = resource
             captured["params"] = params
             return {
-                "data": [
+                "entry": [
                     {
-                        "pc_eid": "55",
-                        "pc_pid": "a25943d6-4711-419d-8f8b-42a9f8cc3069",
-                        "pc_eventDate": "2026-08-04",
-                        "pc_startTime": "13:00",
-                        "pc_title": "Knee Pain",
-                        "pc_aid": "1",
+                        "resource": {
+                            "resourceType": "Appointment",
+                            "id": "55",
+                            "start": "2026-08-04T13:00:00-07:00",
+                            "description": "Knee Pain",
+                            "participant": [
+                                {
+                                    "actor": {
+                                        "reference": "Practitioner/1",
+                                        "display": "Dr. Example",
+                                    }
+                                }
+                            ],
+                        }
                     }
                 ]
             }
 
     results = get_appointments_api("pa25943d6-4711-419d-8f8b-42a9f8cc3069", FakeHttpClient())
 
-    assert captured["path"] == "patient/a25943d6-4711-419d-8f8b-42a9f8cc3069/appointment"
-    assert captured["params"] is None
+    assert captured["resource"] == "Appointment"
+    assert captured["params"] == {"patient": "a25943d6-4711-419d-8f8b-42a9f8cc3069"}
     assert len(results) == 1
     assert results[0].appointment_id == "a55"
     assert results[0].patient_id == "pa25943d6-4711-419d-8f8b-42a9f8cc3069"
-    assert results[0].start_time == "2026-08-04T13:00"
+    assert results[0].start_time == "2026-08-04T13:00:00-07:00"
     assert results[0].reason == "Knee Pain"
     assert results[0].provider_id == "prov1"
+    assert results[0].provider_name == "Dr. Example"
 
 
 # ---------------------------------------------------------------------------
