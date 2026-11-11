@@ -73,39 +73,35 @@ def _build_clinical_payload(patient_id: str, window_months: int) -> dict:
 
 
 def _build_context_payload(patient_id: str) -> dict:
-    from openemr_mcp.data_source import get_effective_data_source
+    from openemr_mcp.tools.appointments import run_appointment_list
+    from openemr_mcp.tools.patient import run_get_patient_by_id
 
-    ds = get_effective_data_source()
     appointments: list = []
     demographics = None
     care_team: list = []
 
-    if ds == "db":
-        from openemr_mcp.repositories.appointment import get_appointments
-        from openemr_mcp.repositories.patient import get_openemr_connection, get_patient_by_id
-
-        try:
-            apts = get_appointments(patient_id, get_openemr_connection)
-            appointments = [
-                {
-                    "appointment_id": a.appointment_id,
-                    "start_time": a.start_time or "",
-                    "status": "scheduled",
-                    "reason": a.reason or "",
-                }
-                for a in apts
-            ]
-        except Exception as exc:
-            logger.warning("visit_prep: appointments failed for %s: %s", patient_id, exc, exc_info=True)
-            appointments = []
-        try:
-            pid_int = int((patient_id or "").lstrip("pP").lstrip("0") or "0")
-            patient = get_patient_by_id(pid_int, get_openemr_connection)
-            if patient:
-                demographics = {"dob": patient.dob, "sex": patient.sex, "city": patient.city, "name": patient.full_name}
-        except Exception as exc:
-            logger.warning("visit_prep: demographics failed for %s: %s", patient_id, exc, exc_info=True)
-            demographics = None
+    try:
+        apts = run_appointment_list(patient_id)
+        appointments = [
+            {
+                "appointment_id": a.appointment_id,
+                "start_time": a.start_time or "",
+                "status": "scheduled",
+                "reason": a.reason or "",
+            }
+            for a in apts
+        ]
+    except Exception as exc:
+        logger.warning("visit_prep: appointments failed for %s: %s", patient_id, exc, exc_info=True)
+        appointments = []
+    try:
+        pid_int = int((patient_id or "").lstrip("pP").lstrip("0") or "0")
+        patient = run_get_patient_by_id(pid_int)
+        if patient:
+            demographics = {"dob": patient.dob, "sex": patient.sex, "city": patient.city, "name": patient.full_name}
+    except Exception as exc:
+        logger.warning("visit_prep: demographics failed for %s: %s", patient_id, exc, exc_info=True)
+        demographics = None
 
     return {"appointments": appointments, "demographics": demographics, "care_team": care_team}
 

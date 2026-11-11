@@ -68,11 +68,6 @@ def run_questionnaire_trends(
         from openemr_mcp.repositories.fhir_api import get_questionnaire_trends_api
 
         raw_points = get_questionnaire_trends_api(patient_id, from_date, name_filters, get_http_client())
-    elif ds == "db":
-        from openemr_mcp.repositories.patient import get_openemr_connection
-        from openemr_mcp.repositories.trajectory import get_questionnaire_trends_db
-
-        raw_points = get_questionnaire_trends_db(patient_id, from_date, name_filters, get_openemr_connection)
     else:
         pid = patient_id.lower()
         if not pid.startswith("p"):

@@ -114,14 +114,6 @@ MOCK_PROVIDERS: list[Provider] = [
 
 def run_provider_search(specialty: str | None = None, location: str | None = None) -> ProviderSearchResponse:
     ds = get_effective_data_source()
-    if ds == "db":
-        from openemr_mcp.repositories.patient import get_openemr_connection
-        from openemr_mcp.repositories.provider import search_providers
-
-        providers = search_providers(specialty, location, get_openemr_connection)
-        return ProviderSearchResponse(
-            providers=providers, specialty_queried=specialty or "", location_queried=location or ""
-        )
     if ds == "api":
         from openemr_mcp.repositories.fhir_api import search_providers_api
 

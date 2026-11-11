@@ -88,12 +88,6 @@ def run_medication_list(patient_id: str) -> MedicationListResponse:
         return MedicationListResponse(patient_id="", medications=[])
     pid = _normalize_patient_id(pid_raw)
     ds = get_effective_data_source()
-    if ds == "db":
-        from openemr_mcp.repositories.medication import get_medications
-        from openemr_mcp.repositories.patient import get_openemr_connection
-
-        meds = get_medications(pid_raw, get_openemr_connection)
-        return MedicationListResponse(patient_id=pid, medications=meds)
     if ds == "api":
         from openemr_mcp.repositories.fhir_api import get_medications_api
 

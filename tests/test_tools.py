@@ -1,9 +1,10 @@
-"""Smoke tests — verify all 17 MCP tools return expected types in mock mode."""
+"""Smoke tests — verify all 20 MCP tools return expected types in mock mode."""
 
 import pytest
 
 from openemr_mcp.repositories._errors import ToolError
 from openemr_mcp.schemas import (
+    AppointmentCreateResult,
     DrugInteractionResponse,
     DrugSafetyFlag,
     DrugSafetyFlagListResponse,
@@ -11,6 +12,7 @@ from openemr_mcp.schemas import (
     FDADrugLabelResult,
     HealthTrajectoryResponse,
     MedicationListResponse,
+    PatientMatch,
     ProviderSearchResponse,
     SymptomLookupResponse,
     VisitPrepResponse,
@@ -38,6 +40,103 @@ def test_patient_search_no_results():
     assert len(results) == 0
 
 
+def test_patient_search_empty_query_rejected():
+    from openemr_mcp.tools.patient import run_patient_search
+
+    with pytest.raises(ToolError, match="query is required for patient search"):
+        run_patient_search("")
+
+
+def test_patient_list_default_limit():
+    from openemr_mcp.tools.patient import run_patient_list
+
+    results = run_patient_list()
+    assert isinstance(results, list)
+    assert len(results) == 24
+
+
+def test_patient_list_custom_limit():
+    from openemr_mcp.tools.patient import run_patient_list
+
+    results = run_patient_list(limit=5)
+    assert isinstance(results, list)
+    assert len(results) == 5
+    assert results[0].patient_id == "p001"
+
+
+def test_patient_list_rejects_invalid_limit():
+    from openemr_mcp.tools.patient import run_patient_list
+
+    with pytest.raises(ToolError, match="limit must be greater than 0"):
+        run_patient_list(limit=0)
+
+
+def test_patient_search_rejects_unsupported_data_source(monkeypatch):
+    from openemr_mcp.tools.patient import run_patient_search
+
+    monkeypatch.setenv("OPENEMR_DATA_SOURCE", "db")
+
+    with pytest.raises(ToolError, match="Unsupported OPENEMR_DATA_SOURCE 'db'"):
+        run_patient_search("John")
+
+
+def test_patient_create_mock_patient():
+    from openemr_mcp.tools.patient import run_create_patient, run_patient_search
+
+    created = run_create_patient("Taylor", "Example", "1994-01-15", "Female")
+    assert isinstance(created, PatientMatch)
+    assert created.patient_id.startswith("p")
+    assert created.full_name == "Taylor Example"
+    assert created.dob == "1994-01-15"
+    assert created.sex == "Female"
+
+    matches = run_patient_search("Taylor Example")
+    assert any(match.patient_id == created.patient_id for match in matches)
+
+
+def test_patient_create_rejects_invalid_birth_sex():
+    from openemr_mcp.tools.patient import run_create_patient
+
+    with pytest.raises(ToolError, match="birth_sex must be one of"):
+        run_create_patient("Chris", "Example", "1994-01-15", "Invalid")
+
+
+def test_create_patient_api_uses_official_name_payload():
+    from openemr_mcp.repositories.fhir_api import create_patient_api
+    from openemr_mcp.schemas import PatientCreate
+
+    captured: dict = {}
+
+    class FakeHttpClient:
+        def post_fhir(self, resource_path: str, json_body: dict) -> dict:
+            captured["resource_path"] = resource_path
+            captured["json_body"] = json_body
+            return {
+                "uuid": "123",
+            }
+
+    patient = create_patient_api(
+        PatientCreate(
+            first_name="Jane",
+            last_name="Example",
+            date_of_birth="1990-07-22",
+            birth_sex="Female",
+        ),
+        FakeHttpClient(),
+    )
+
+    assert captured["resource_path"] == "Patient"
+    assert captured["json_body"]["name"][0]["use"] == "official"
+    assert captured["json_body"]["name"][0]["given"] == ["Jane"]
+    assert captured["json_body"]["name"][0]["family"] == "Example"
+    assert captured["json_body"]["active"] is True
+    assert captured["json_body"]["birthDate"] == "1990-07-22"
+    assert captured["json_body"]["gender"] == "female"
+    assert "extension" not in captured["json_body"]
+    assert patient.patient_id == "p123"
+    assert patient.full_name == "Jane Example"
+
+
 # ---------------------------------------------------------------------------
 # Appointments
 # ---------------------------------------------------------------------------
@@ -59,6 +158,179 @@ def test_appointment_list_unknown_patient():
     results = run_appointment_list("p999")
     assert isinstance(results, list)
     assert len(results) == 0
+
+
+def test_appointment_create_mock_patient():
+    from openemr_mcp.tools.appointments import run_appointment_list, run_create_appointment
+
+    created = run_create_appointment(
+        patient_id="p001",
+        category_id="5",
+        title="Office Visit",
+        duration="900",
+        comments="Test",
+        appointment_status="-",
+        event_date="2026-08-01",
+        start_time="09:00",
+        facility_id="9",
+        billing_location_id="10",
+        provider_id="prov1",
+    )
+
+    assert isinstance(created, AppointmentCreateResult)
+    assert created.appointment_id is not None
+    assert created.patient_id == "p001"
+    assert created.status == "created"
+    assert created.start_time == "2026-08-01T09:00"
+    assert created.reason == "Office Visit"
+    assert created.provider_id == "prov1"
+
+    results = run_appointment_list("p001")
+    assert any(item.appointment_id == created.appointment_id for item in results)
+
+
+def test_appointment_create_mock_defaults_to_pending_status():
+    from openemr_mcp.tools.appointments import run_create_appointment
+
+    created = run_create_appointment(
+        patient_id="p001",
+        title="Office Visit",
+        comments="Brief note",
+        event_date="2026-08-01",
+        start_time="09:00",
+    )
+
+    assert isinstance(created, AppointmentCreateResult)
+    assert created.status == "created"
+
+
+def test_appointment_create_rejects_invalid_event_date():
+    from openemr_mcp.tools.appointments import run_create_appointment
+
+    with pytest.raises(ToolError, match="event_date must be in YYYY-MM-DD format"):
+        run_create_appointment(
+            patient_id="p001",
+            category_id="5",
+            title="Office Visit",
+            duration="900",
+            comments="Test",
+            appointment_status="-",
+            event_date="08/01/2026",
+            start_time="09:00",
+            facility_id="9",
+            billing_location_id="10",
+        )
+
+
+def test_appointment_create_rejects_missing_title():
+    from openemr_mcp.tools.appointments import run_create_appointment
+
+    with pytest.raises(ToolError, match="title is required"):
+        run_create_appointment(
+            patient_id="p001",
+            category_id="5",
+            title="",
+            duration="900",
+            comments="Test",
+            appointment_status="-",
+            event_date="2026-08-01",
+            start_time="09:00",
+            facility_id="9",
+            billing_location_id="10",
+        )
+
+
+def test_create_appointment_api_uses_rest_payload():
+    from openemr_mcp.repositories.fhir_api import create_appointment_api
+    from openemr_mcp.schemas import AppointmentCreate
+
+    captured: dict = {}
+
+    class FakeHttpClient:
+        def post_rest(self, path: str, json_body: dict) -> dict:
+            captured["path"] = path
+            captured["json_body"] = json_body
+            return {
+                "status": "created",
+                "data": {
+                    "pc_eid": "55",
+                    "pc_eventDate": "2026-08-01",
+                    "pc_startTime": "09:00",
+                    "pc_title": "Office Visit",
+                    "pc_aid": "1",
+                },
+            }
+
+    result = create_appointment_api(
+        AppointmentCreate(
+            patient_id="p001",
+            category_id="5",
+            title="Office Visit",
+            duration="900",
+            comments="Test",
+            appointment_status="-",
+            event_date="2026-08-01",
+            start_time="09:00",
+            facility_id="9",
+            billing_location_id="10",
+            provider_id="prov1",
+        ),
+        FakeHttpClient(),
+    )
+
+    assert captured["path"] == "patient/1/appointment"
+    assert captured["json_body"] == {
+        "pc_catid": "5",
+        "pc_title": "Office Visit",
+        "pc_duration": "900",
+        "pc_hometext": "Test",
+        "pc_apptstatus": "-",
+        "pc_eventDate": "2026-08-01",
+        "pc_startTime": "09:00",
+        "pc_facility": "9",
+        "pc_billing_location": "10",
+        "pc_aid": "1",
+    }
+    assert result.appointment_id == "a55"
+    assert result.patient_id == "p001"
+    assert result.status == "created"
+    assert result.start_time == "2026-08-01T09:00"
+    assert result.reason == "Office Visit"
+    assert result.provider_id == "prov1"
+
+
+def test_get_appointments_api_uses_patient_appointment_route_for_uuid():
+    from openemr_mcp.repositories.fhir_api import get_appointments_api
+
+    captured: dict = {}
+
+    class FakeHttpClient:
+        def get_rest(self, path: str, params: dict | None = None) -> dict:
+            captured["path"] = path
+            captured["params"] = params
+            return {
+                "data": [
+                    {
+                        "pc_eid": "55",
+                        "pc_pid": "a25943d6-4711-419d-8f8b-42a9f8cc3069",
+                        "pc_eventDate": "2026-08-04",
+                        "pc_startTime": "13:00",
+                        "pc_title": "Knee Pain",
+                        "pc_aid": "1",
+                    }
+                ]
+            }
+
+    results = get_appointments_api("pa25943d6-4711-419d-8f8b-42a9f8cc3069", FakeHttpClient())
+
+    assert captured["path"] == "patient/a25943d6-4711-419d-8f8b-42a9f8cc3069/appointment"
+    assert captured["params"] is None
+    assert len(results) == 1
+    assert results[0].appointment_id == "a55"
+    assert results[0].patient_id == "pa25943d6-4711-419d-8f8b-42a9f8cc3069"
+    assert results[0].start_time == "2026-08-04T13:00"
+    assert results[0].reason == "Knee Pain"
+    assert results[0].provider_id == "prov1"
 
 
 # ---------------------------------------------------------------------------
@@ -267,6 +539,7 @@ def test_drug_safety_flag_crud(tmp_path, monkeypatch):
 
     # Redirect the SQLite DB to a temp directory
     test_db = tmp_path / "flags.db"
+    ds_repo.close_db()
     monkeypatch.setattr(ds_repo, "_DB_PATH", test_db)
     monkeypatch.setattr(ds_repo, "_conn", None)
 

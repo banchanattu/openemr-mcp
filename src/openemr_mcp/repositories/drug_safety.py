@@ -6,6 +6,7 @@ Storage: SQLite (no external dependencies; works in mock mode and production).
          Falls back to in-memory store when filesystem is read-only.
 """
 
+import atexit
 import logging
 import sqlite3
 import uuid
@@ -52,7 +53,7 @@ def _get_connection() -> sqlite3.Connection:
         _log.warning("Cannot write to %s — using in-memory SQLite", _DB_PATH)
         conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
-    return conn
+    return _track_connection(conn)
 
 
 def _init_db(conn: sqlite3.Connection) -> None:
@@ -61,6 +62,7 @@ def _init_db(conn: sqlite3.Connection) -> None:
 
 
 _conn: sqlite3.Connection | None = None
+_open_connections: list[sqlite3.Connection] = []
 
 
 def _db() -> sqlite3.Connection:
@@ -71,6 +73,33 @@ def _db() -> sqlite3.Connection:
     return _conn
 
 
+def _track_connection(conn: sqlite3.Connection) -> sqlite3.Connection:
+    _open_connections.append(conn)
+    return conn
+
+
+def close_db() -> None:
+    """Close all cached SQLite connections and clear module state."""
+    global _conn
+    seen: set[int] = set()
+    for conn in [*_open_connections, _conn]:
+        if conn is None:
+            continue
+        conn_id = id(conn)
+        if conn_id in seen:
+            continue
+        seen.add(conn_id)
+        try:
+            conn.close()
+        except Exception:
+            pass
+    _open_connections.clear()
+    _conn = None
+
+
+atexit.register(close_db)
+
+
 def reset_for_tests() -> None:
     """Drop and recreate the table. Used by test fixtures to ensure isolation."""
     global _conn
@@ -79,8 +108,7 @@ def reset_for_tests() -> None:
         _conn.commit()
         _init_db(_conn)
     else:
-        _conn = sqlite3.connect(":memory:")
-        _conn.row_factory = sqlite3.Row
+        _conn = _get_connection()
         _init_db(_conn)
 
 

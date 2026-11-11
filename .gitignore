@@ -64,6 +64,7 @@ htmlcov/
 
 # Secrets
 .env.local
+.env.docker
 .env.*.local
 secrets.env
 *.pem
