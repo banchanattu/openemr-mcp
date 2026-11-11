@@ -1,19 +1,22 @@
 """
 OpenEMR MCP Server — Model Context Protocol server for OpenEMR.
 
-Registers 17 tools: patient search, appointments, medications, drug interactions,
+Registers 20 tools: patient search/list/create, appointment list/create, medications, drug interactions,
 provider search, FDA adverse events, FDA drug labels, symptom lookup, drug safety
 flag CRUD, lab trends, vital trends, questionnaire trends, health trajectory,
 and visit prep.
 
 Run via:
-    openemr-mcp                    # stdio transport (default)
+    openemr-mcp                                             # stdio transport (default)
     OPENEMR_DATA_SOURCE=mock openemr-mcp
+    openemr-mcp --transport streamable-http --port 8305     # network server
 """
 
+import argparse
 import asyncio
 import json
 import logging
+import os
 import time
 from typing import Any
 
@@ -21,6 +24,10 @@ import mcp.types as types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 
+# Load .env defaults before parsing transport options.
+from openemr_mcp import config as _config
+
+_ = _config
 _log = logging.getLogger("openemr_mcp")
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
 
@@ -34,13 +41,52 @@ server = Server("openemr-mcp")
 _TOOLS = [
     types.Tool(
         name="openemr_patient_search",
-        description="Search OpenEMR patients by name. Returns matching patient records with ID, DOB, sex, and city.",
+        description=(
+            "Search OpenEMR patients by name or partial name. Requires a non-empty query. "
+            "Returns a JSON array of matching patients; an empty array [] means no matching patients were found. "
+            "Do not use this tool to list all patients."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
                 "query": {"type": "string", "description": "Patient name or partial name to search for"},
             },
             "required": ["query"],
+        },
+    ),
+    types.Tool(
+        name="openemr_patient_create",
+        description="Create a new OpenEMR patient using the required demographic fields.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "first_name": {"type": "string", "description": "Patient first name"},
+                "last_name": {"type": "string", "description": "Patient last name"},
+                "date_of_birth": {"type": "string", "description": "Birth date in YYYY-MM-DD format"},
+                "birth_sex": {
+                    "type": "string",
+                    "description": "Birth sex",
+                    "enum": ["Male", "Female", "Other", "Unknown"],
+                },
+            },
+            "required": ["first_name", "last_name", "date_of_birth", "birth_sex"],
+        },
+    ),
+    types.Tool(
+        name="openemr_patient_list",
+        description=(
+            "List patients. Use this tool when the user asks for all patients or a general patient list. "
+            "Returns a JSON array of patients; an empty array [] means OpenEMR currently has no visible patients."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of patients to return (default 50)",
+                    "default": 50,
+                },
+            },
         },
     ),
     types.Tool(
@@ -52,6 +98,49 @@ _TOOLS = [
                 "patient_id": {"type": "string", "description": "OpenEMR patient ID (e.g., 'p001')"},
             },
             "required": ["patient_id"],
+        },
+    ),
+    types.Tool(
+        name="openemr_appointment_create",
+        description="Create a new appointment for an existing patient.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "patient_id": {"type": "string", "description": "OpenEMR patient ID (e.g., 'p001')"},
+                "category_id": {
+                    "type": "string",
+                    "description": "OpenEMR appointment category ID",
+                    "default": "5",
+                },
+                "title": {"type": "string", "description": "Appointment title"},
+                "duration": {
+                    "type": "string",
+                    "description": "Appointment duration in seconds",
+                    "default": "900",
+                },
+                "comments": {"type": "string", "description": "Comments for the appointment"},
+                "appointment_status": {
+                    "type": "string",
+                    "description": "Appointment status code. '^' is OpenEMR's pending status.",
+                    "default": "^",
+                },
+                "event_date": {"type": "string", "description": "Appointment date in YYYY-MM-DD format"},
+                "start_time": {"type": "string", "description": "Appointment time in HH:MM or HH:MM:SS format"},
+                "facility_id": {"type": "string", "description": "OpenEMR facility ID", "default": "9"},
+                "billing_location_id": {
+                    "type": "string",
+                    "description": "OpenEMR billing location ID",
+                    "default": "10",
+                },
+                "provider_id": {"type": "string", "description": "OpenEMR provider ID (optional)"},
+            },
+            "required": [
+                "patient_id",
+                "title",
+                "comments",
+                "event_date",
+                "start_time",
+            ],
         },
     ),
     types.Tool(
@@ -314,17 +403,28 @@ def _json(obj: Any) -> str:
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
+    try:
+        result = _invoke_tool(name, arguments)
+        return [types.TextContent(type="text", text=_json(result))]
+    except Exception as exc:
+        error_payload = {"error": str(exc), "tool": name}
+        return [types.TextContent(type="text", text=json.dumps(error_payload))]
+
+
+def _invoke_tool(name: str, args: dict) -> Any:
     t0 = time.perf_counter()
     try:
-        result = _dispatch(name, arguments)
+        result = _dispatch(name, args)
         elapsed_ms = (time.perf_counter() - t0) * 1000
-        _log.info("tool=%s status=ok latency_ms=%.1f", name, elapsed_ms)
-        return [types.TextContent(type="text", text=_json(result))]
+        if isinstance(result, list):
+            _log.info("tool=%s status=ok latency_ms=%.1f result_count=%d", name, elapsed_ms, len(result))
+        else:
+            _log.info("tool=%s status=ok latency_ms=%.1f", name, elapsed_ms)
+        return result
     except Exception as exc:
         elapsed_ms = (time.perf_counter() - t0) * 1000
         _log.error("tool=%s status=error latency_ms=%.1f error=%s", name, elapsed_ms, exc, exc_info=True)
-        error_payload = {"error": str(exc), "tool": name}
-        return [types.TextContent(type="text", text=json.dumps(error_payload))]
+        raise
 
 
 def _dispatch(name: str, args: dict) -> Any:
@@ -333,10 +433,42 @@ def _dispatch(name: str, args: dict) -> Any:
 
         return run_patient_search(args["query"])
 
+    if name == "openemr_patient_create":
+        from openemr_mcp.tools.patient import run_create_patient
+
+        return run_create_patient(
+            first_name=args["first_name"],
+            last_name=args["last_name"],
+            date_of_birth=args["date_of_birth"],
+            birth_sex=args["birth_sex"],
+        )
+
+    if name == "openemr_patient_list":
+        from openemr_mcp.tools.patient import run_patient_list
+
+        return run_patient_list(limit=args.get("limit", 50))
+
     if name == "openemr_appointment_list":
         from openemr_mcp.tools.appointments import run_appointment_list
 
         return run_appointment_list(args["patient_id"])
+
+    if name == "openemr_appointment_create":
+        from openemr_mcp.tools.appointments import run_create_appointment
+
+        return run_create_appointment(
+            patient_id=args["patient_id"],
+            title=args["title"],
+            comments=args["comments"],
+            event_date=args["event_date"],
+            start_time=args["start_time"],
+            category_id=args.get("category_id", "5"),
+            duration=args.get("duration", "900"),
+            appointment_status=args.get("appointment_status", "^"),
+            facility_id=args.get("facility_id", "9"),
+            billing_location_id=args.get("billing_location_id", "10"),
+            provider_id=args.get("provider_id"),
+        )
 
     if name == "openemr_medication_list":
         from openemr_mcp.tools.medications import run_medication_list
@@ -464,9 +596,61 @@ async def _main():
         )
 
 
-def run():
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run the OpenEMR MCP server.")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "streamable-http", "http"],
+        default=os.getenv("OPENEMR_MCP_TRANSPORT", "stdio"),
+        help="Transport to expose. Use streamable-http to run a network server.",
+    )
+    parser.add_argument(
+        "--host",
+        default=os.getenv("OPENEMR_MCP_HOST", "127.0.0.1"),
+        help="Bind host for streamable-http transport.",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.getenv("OPENEMR_MCP_PORT", "8305")),
+        help="Bind port for streamable-http transport.",
+    )
+    parser.add_argument(
+        "--path",
+        default=os.getenv("OPENEMR_MCP_PATH", "/mcp"),
+        help="HTTP mount path for streamable-http transport.",
+    )
+    return parser.parse_args(argv)
+
+
+def _normalize_transport(transport: str) -> str:
+    if transport == "http":
+        return "streamable-http"
+    return transport
+
+
+def _normalize_path(path: str) -> str:
+    cleaned = path.strip() or "/mcp"
+    if not cleaned.startswith("/"):
+        cleaned = f"/{cleaned}"
+    return cleaned
+
+
+def run(argv: list[str] | None = None):
     """Entry point: openemr-mcp"""
-    asyncio.run(_main())
+    args = _parse_args(argv)
+    transport = _normalize_transport(args.transport)
+    if transport == "stdio":
+        asyncio.run(_main())
+        return
+
+    from openemr_mcp.http_server import run_streamable_http
+
+    run_streamable_http(
+        host=args.host,
+        port=args.port,
+        path=_normalize_path(args.path),
+    )
 
 
 if __name__ == "__main__":
