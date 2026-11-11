@@ -41,7 +41,11 @@ server = Server("openemr-mcp")
 _TOOLS = [
     types.Tool(
         name="openemr_patient_search",
-        description="Search OpenEMR patients by name or partial name. Requires a non-empty query. Do not use this tool to list all patients.",
+        description=(
+            "Search OpenEMR patients by name or partial name. Requires a non-empty query. "
+            "Returns a JSON array of matching patients; an empty array [] means no matching patients were found. "
+            "Do not use this tool to list all patients."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -70,7 +74,10 @@ _TOOLS = [
     ),
     types.Tool(
         name="openemr_patient_list",
-        description="List patients. Use this tool when the user asks for all patients or a general patient list.",
+        description=(
+            "List patients. Use this tool when the user asks for all patients or a general patient list. "
+            "Returns a JSON array of patients; an empty array [] means OpenEMR currently has no visible patients."
+        ),
         inputSchema={
             "type": "object",
             "properties": {

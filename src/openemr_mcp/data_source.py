@@ -102,6 +102,12 @@ def get_http_client():
             try:
                 r = httpx.get(url, params=params, headers=headers, timeout=15.0)
                 r.raise_for_status()
+                # OpenEMR installations may return a successful empty body when
+                # a collection has no records. Treat that as an empty FHIR
+                # response so list/search tools return [] instead of exposing an
+                # empty string or failing JSON decoding.
+                if not r.content or not r.content.strip():
+                    return {}
                 return r.json()
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code == 404:

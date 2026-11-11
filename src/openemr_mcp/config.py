@@ -6,6 +6,22 @@ from pathlib import Path
 from dotenv import dotenv_values
 from pydantic import BaseModel, ConfigDict
 
+
+def normalize_api_base_url(value: str | None) -> str | None:
+    """Normalize a configured OpenEMR base URL for HTTP clients.
+
+    Local installations are often configured as ``localhost:8300/apis/default``
+    without a scheme.  ``httpx`` requires an absolute URL, so treat such values
+    as plain HTTP while preserving explicitly configured schemes (including
+    HTTPS).
+    """
+    if value is None:
+        return None
+    value = value.strip()
+    if value and "://" not in value:
+        return f"http://{value}"
+    return value
+
 # Load local env defaults from cwd.
 # Precedence: process env > cwd .env.local > cwd .env
 for _env_name in (".env", ".env.local"):
@@ -24,7 +40,7 @@ class Settings(BaseModel):
     openemr_data_source: str = os.getenv("OPENEMR_DATA_SOURCE", "mock")
 
     # FHIR R4 API (used when OPENEMR_DATA_SOURCE=api)
-    openemr_api_base_url: str | None = os.getenv("OPENEMR_API_BASE_URL")
+    openemr_api_base_url: str | None = normalize_api_base_url(os.getenv("OPENEMR_API_BASE_URL"))
     openemr_mcp_public_base_url: str | None = os.getenv("OPENEMR_MCP_PUBLIC_BASE_URL")
     openemr_mcp_server_name: str = os.getenv("OPENEMR_MCP_SERVER_NAME", "openemr-mcp-server")
     openemr_mcp_server_title: str = os.getenv("OPENEMR_MCP_SERVER_TITLE", "OpenEMR Healthcare MCP Server")
